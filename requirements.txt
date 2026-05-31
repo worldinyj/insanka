@@ -13,7 +13,7 @@ apscheduler
 filetype
 python-dotenv
 pydantic-settings
-psycopg[binary]
+asyncpg
 python-multipart
 aiosqlite
 greenlet
