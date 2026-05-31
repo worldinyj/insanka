@@ -18,3 +18,4 @@ python-multipart
 aiosqlite
 greenlet
 websockets
+boto3
