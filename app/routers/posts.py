@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from app.database import get_db
 from app.models.post import Post, Comment, PostLike
 from app.models.room import Room
@@ -56,8 +56,8 @@ async def get_posts(
     # Get comment and like counts
     posts_data = []
     for p, u in rows:
-        likes_count = (await db.execute(select(db.func.count()).where(PostLike.post_id == p.id))).scalar()
-        comments_count = (await db.execute(select(db.func.count()).where(Comment.post_id == p.id))).scalar()
+        likes_count = (await db.execute(select(func.count()).where(PostLike.post_id == p.id))).scalar()
+        comments_count = (await db.execute(select(func.count()).where(Comment.post_id == p.id))).scalar()
         
         posts_data.append({
             "id": p.id, 
@@ -138,7 +138,7 @@ async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
             "author": {"id": u.id, "username": u.username, "level": u.level}
         })
         
-    likes_count = (await db.execute(select(db.func.count()).where(PostLike.post_id == post_id))).scalar()
+    likes_count = (await db.execute(select(func.count()).where(PostLike.post_id == post_id))).scalar()
     
     return {
         "id": post.id,
