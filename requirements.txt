@@ -19,3 +19,4 @@ aiosqlite
 greenlet
 websockets
 boto3
+sse-starlette
