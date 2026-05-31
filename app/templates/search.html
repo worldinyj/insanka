@@ -40,10 +40,10 @@
             </div>
         </template>
 
-        <template x-if="!loading && q.length >= 2">
+        <template x-if="!loading && hasSearched">
             <div>
                 <!-- Tabs -->
-                <div class="flex border-b border-border mb-6">
+                <div class="flex space-x-4 border-b border-border mb-6 overflow-x-auto whitespace-nowrap scrollbar-hide">
                     <button @click="currentTab = 'posts'" :class="currentTab === 'posts' ? 'border-accent text-accent font-bold' : 'border-transparent text-text-secondary hover:text-text-primary'" class="px-4 py-2 border-b-2 transition-colors">
                         게시글 (<span x-text="results.posts.length"></span>)
                     </button>

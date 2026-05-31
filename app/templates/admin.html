@@ -279,7 +279,7 @@
     </div>
 
     <!-- Admin Tabs -->
-    <div class="flex flex-wrap space-x-1 sm:space-x-4 mb-8 border-b border-border">
+    <div class="flex space-x-1 mb-8 border-b border-border overflow-x-auto whitespace-nowrap scrollbar-hide">
         <button @click="activeTab = 'dashboard'" 
                 :class="activeTab === 'dashboard' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
                 class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition">

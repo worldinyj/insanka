@@ -190,7 +190,7 @@
             </div>
 
             <!-- Tabs -->
-            <div class="flex space-x-1 border-b border-border mt-6">
+            <div class="flex space-x-1 border-b border-border mt-6 overflow-x-auto whitespace-nowrap scrollbar-hide">
                 <button @click="activeTab = 'points'" 
                         :class="activeTab === 'points' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
                         class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition">

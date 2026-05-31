@@ -252,7 +252,7 @@
     </div>
 
     <!-- Tabs -->
-    <div class="flex space-x-1 mb-6 border-b border-border">
+    <div class="flex space-x-1 mb-6 border-b border-border overflow-x-auto whitespace-nowrap scrollbar-hide">
         <button @click="switchTab('feed')" 
                 :class="postType === 'feed' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
                 class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition">
@@ -484,7 +484,7 @@
     </div>
     
     <!-- Chat UI -->
-    <div x-show="postType === 'chat'" style="display: none;" class="bg-bg-surface border border-border rounded-xl shadow-lg flex flex-col h-[600px] overflow-hidden relative">
+    <div x-show="postType === 'chat'" style="display: none;" class="bg-bg-surface border border-border rounded-xl shadow-lg flex flex-col h-[calc(100vh-280px)] sm:h-[600px] overflow-hidden relative">
         <!-- Overlay if not logged in -->
         <template x-if="!user">
             <div class="absolute inset-0 bg-bg-surface bg-opacity-90 flex flex-col items-center justify-center z-10 backdrop-blur-sm">
