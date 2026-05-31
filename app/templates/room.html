@@ -43,7 +43,14 @@
                 this.activeVote = voteData.vote;
             }
         } catch(e) {}
-        this.loadPosts();
+        
+        if (this.postType === 'chat') {
+            this.initChat();
+        } else if (this.postType === 'events') {
+            this.loadEvents();
+        } else {
+            this.loadPosts();
+        }
     },
     
     async castVote() {
