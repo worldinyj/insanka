@@ -12,13 +12,25 @@ router = APIRouter(tags=["pages"])
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
+@router.get("/")
+async def home_page(request: Request):
+    return templates.TemplateResponse(request=request, name="home.html")
+
 @router.get("/login")
 async def login_page(request: Request):
     return templates.TemplateResponse(request=request, name="login.html")
 
+@router.get("/password-reset")
+async def password_reset_page(request: Request):
+    return templates.TemplateResponse(request=request, name="password_reset.html")
+
 @router.get("/rules")
 async def rules_page(request: Request):
     return templates.TemplateResponse(request=request, name="rules.html")
+
+@router.get("/privacy")
+async def privacy_page(request: Request):
+    return templates.TemplateResponse(request=request, name="privacy.html")
 
 @router.get("/invite/{token}")
 async def invite_page(request: Request, token: str, db: AsyncSession = Depends(get_db)):
@@ -84,3 +96,10 @@ async def ranking_page(request: Request):
 async def admin_page(request: Request):
     return templates.TemplateResponse(request=request, name="admin.html")
 
+@router.get("/dm")
+async def dm_page(request: Request):
+    return templates.TemplateResponse(request=request, name="dm.html")
+
+@router.get("/search")
+async def search_page(request: Request):
+    return templates.TemplateResponse(request=request, name="search.html")

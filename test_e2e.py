@@ -1,140 +1,68 @@
-import sys
+import asyncio
+from playwright.async_api import async_playwright
 import os
 
-# Add the project root to the python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+async def run():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        
+        print("1. Login as Admin")
+        await page.goto("http://localhost:8000/login")
+        await page.fill('input[name="username"]', "nsc.imp.atom@gmail.com")
+        await page.fill('input[name="password"]', "admin12345!")
+        await page.click('button:has-text("로그인")')
+        await page.wait_for_url("**/room/general")
+        await page.screenshot(path="test_results/1_login.png")
+        print("Login successful")
 
-import asyncio
-import httpx
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
-from app.database import AsyncSessionLocal
-from app.models.user import User
-from app.models.room import Room
-from app.models.post import Post, Comment, PostLike
-from app.models.vote import Vote, VoteOption, VoteCast
-from app.models.point_log import PointLog
+        print("2. Test Phase 9: Admin Dashboard & Room Creation")
+        await page.goto("http://localhost:8000/admin")
+        await page.wait_for_selector('text=관리자 대시보드')
+        
+        # Room Creation Test
+        await page.click('button:has-text("게시판 관리")')
+        await page.wait_for_selector('input[placeholder="예: 가치투자방"]', state='visible')
+        await page.fill('input[placeholder="예: 가치투자방"]', "가치투자방")
+        await page.fill('input[placeholder="예: value-invest"]', "value-invest")
+        await page.click('button:has-text("게시판 생성")')
+        await asyncio.sleep(1)
+        
+        await page.screenshot(path="test_results/2_admin.png")
+        print("Admin Dashboard loaded and room created")
 
-# Mock magic library since libmagic is not installed on the system
-import sys
-from unittest.mock import MagicMock
-sys.modules['magic'] = MagicMock()
+        print("3. Test Phase 10: Events & Calendar")
+        await page.goto("http://localhost:8000/room/general")
+        await page.click('button:has-text("일정(Calendar)")')
+        await page.wait_for_selector('text=새 일정 등록 (관리자)')
+        await page.fill('input[placeholder="예: 2분기 실적 발표"]', "Playwright Test Event")
+        await page.fill('input[type="datetime-local"]', "2026-12-31T10:00")
+        await page.click('button:has-text("일정 등록")')
+        await asyncio.sleep(1) # wait for toast/reload
+        await page.screenshot(path="test_results/3_events.png")
+        print("Event created")
 
-from app.main import app
+        print("4. Test Phase 11: MyPage & Profile")
+        await page.goto("http://localhost:8000/profile")
+        await page.wait_for_selector('text=포인트 획득 내역')
+        await page.click('button:has-text("프로필 수정")')
+        await page.fill('textarea[placeholder="자신을 소개해주세요."]', "Hello I am the admin")
+        await page.click('button:has-text("저장")')
+        await asyncio.sleep(1)
+        await page.click('button:has-text("나의 활동 (글/댓글)")')
+        await page.screenshot(path="test_results/4_profile.png")
+        print("Profile updated and activity viewed")
 
-async def seed_db(session: AsyncSession):
-    # 1. Create Admin
-    admin = User(username="admin", email="admin@test.com", hashed_pw="admin12345!", role="admin", status="approved")
-    session.add(admin)
-    await session.commit()
-    await session.refresh(admin)
-    
-    # 2. Create Room
-    room = Room(name="Main Room", slug="main", description="Test Room")
-    session.add(room)
-    await session.commit()
-    await session.refresh(room)
-    
-    return admin, room
+        print("5. Test Phase 12: Direct Messaging")
+        await page.goto("http://localhost:8000/dm")
+        await page.wait_for_selector('text=쪽지')
+        await page.click('button:has-text("새 쪽지")')
+        await page.wait_for_selector('text=새 쪽지 보내기')
+        await page.screenshot(path="test_results/5_dm.png")
+        print("DM page loaded and modal opened")
 
-async def teardown(session: AsyncSession, admin_id: int, room_id: int):
-    # Delete everything related
-    await session.execute(delete(PointLog).where(PointLog.user_id == admin_id))
-    await session.execute(delete(VoteCast).where(VoteCast.user_id == admin_id))
-    await session.execute(delete(VoteOption))
-    await session.execute(delete(Vote))
-    await session.execute(delete(Comment).where(Comment.author_id == admin_id))
-    await session.execute(delete(PostLike).where(PostLike.user_id == admin_id))
-    await session.execute(delete(Post).where(Post.author_id == admin_id))
-    await session.execute(delete(Room).where(Room.id == room_id))
-    await session.execute(delete(User).where(User.id == admin_id))
-    await session.commit()
-
-async def run_scenario():
-    async with AsyncSessionLocal() as session:
-        admin, room = await seed_db(session)
-        print(f"[Seed] Created Admin User ID: {admin.id}, Room Slug: {room.slug}")
-
-        try:
-            # Need asgi_lifespan if we have startup events, but for simple testing this works
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-                # Mock token for Depends(oauth2_scheme)
-                headers = {"Authorization": "Bearer fake-token"}
-                
-                # 1. Create Post
-                print("\n[Scenario] 1. Creating a Post...")
-                response = await client.post(
-                    "/api/v1/rooms/main/posts", 
-                    json={"title": "Hello World", "content": "This is a test post."},
-                    headers=headers
-                )
-                assert response.status_code == 200, f"Failed to create post: {response.text}"
-                post_id = response.json()["id"]
-                print(f"✅ Post created with ID: {post_id}")
-                
-                # 2. Create Comment
-                print("\n[Scenario] 2. Creating a Comment...")
-                response = await client.post(
-                    f"/api/v1/posts/{post_id}/comments",
-                    json={"content": "This is a test comment."},
-                    headers=headers
-                )
-                assert response.status_code == 200, f"Failed to create comment: {response.text}"
-                print("✅ Comment created.")
-                
-                # 3. Create Vote
-                print("\n[Scenario] 3. Creating a Vote...")
-                response = await client.post(
-                    "/api/v1/rooms/main/votes",
-                    json={
-                        "title": "What's the best stock?",
-                        "options": [{"text": "TSLA"}, {"text": "AAPL"}],
-                        "is_multiple": False
-                    },
-                    headers=headers
-                )
-                assert response.status_code == 200, f"Failed to create vote: {response.text}"
-                vote_id = response.json()["id"]
-                print(f"✅ Vote created with ID: {vote_id}")
-                
-                # Get vote options
-                response = await client.get(f"/api/v1/votes/{vote_id}/results")
-                options = response.json()["results"]
-                option_id = options[0]["id"]
-                
-                # 4. Cast Vote
-                print("\n[Scenario] 4. Casting a Vote...")
-                response = await client.post(
-                    f"/api/v1/votes/{vote_id}/cast",
-                    json=[option_id],
-                    headers=headers
-                )
-                assert response.status_code == 200, f"Failed to cast vote: {response.text}"
-                print("✅ Vote casted.")
-                
-                # 5. Check Points
-                print("\n[Scenario] 5. Checking Points and Ranking...")
-                response = await client.get("/api/v1/users/me/points", headers=headers)
-                assert response.status_code == 200, f"Failed to get points: {response.text}"
-                points_data = response.json()
-                print(f"✅ Current Points: {points_data['total_points']}")
-                assert points_data['total_points'] > 0, "Points should be greater than 0"
-                
-                response = await client.get("/api/v1/users/ranking", headers=headers)
-                assert response.status_code == 200, f"Failed to get ranking: {response.text}"
-                ranking_data = response.json()["ranking"]
-                print(f"✅ Top Ranker: {ranking_data[0]['username']} with {ranking_data[0]['total_points']} points")
-                
-                print("\n🎉 ALL SCENARIOS PASSED SUCCESSFULLY!")
-                
-        except Exception as e:
-            print(f"\n❌ SCENARIO FAILED: {e}")
-            import traceback
-            traceback.print_exc()
-        finally:
-            print("\n[Teardown] Cleaning up sample data...")
-            await teardown(session, admin.id, room.id)
-            print("✅ Teardown complete.")
+        await browser.close()
 
 if __name__ == "__main__":
-    asyncio.run(run_scenario())
+    os.makedirs("test_results", exist_ok=True)
+    asyncio.run(run())

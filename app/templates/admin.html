@@ -3,12 +3,108 @@
 {% block title %}관리자 대시보드 - 인산가{% endblock %}
 
 {% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <div class="max-w-6xl w-full" x-data="{
+    activeTab: 'dashboard', // dashboard, pending, members, votes
     pendingMembers: [],
+    allMembers: [],
+    votes: [],
+    stats: {total_users: 0, pending_users: 0, total_posts: 0, total_comments: 0},
     loading: false,
     newInviteEmail: '',
     inviteToken: null,
     inviteError: null,
+    searchQuery: '',
+    newVoteTitle: '',
+    newVoteIsMultiple: false,
+    newVoteOptions: [{text: ''}, {text: ''}],
+    rooms: [],
+    newRoomName: '',
+    newRoomSlug: '',
+    newRoomDesc: '',
+    pushMessage: '',
+    async loadStats() {
+        const res = await fetch('/api/v1/admin/dashboard/stats');
+        if(res.ok) {
+            this.stats = await res.json();
+            // Draw chart
+            setTimeout(() => {
+                const ctx = document.getElementById('statsChart');
+                if(ctx && !window.myStatsChart) {
+                    window.myStatsChart = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: ['전체 회원', '가입 대기', '총 게시글', '총 댓글'],
+                            datasets: [{
+                                label: '현황 통계',
+                                data: [this.stats.total_users, this.stats.pending_users, this.stats.total_posts, this.stats.total_comments],
+                                backgroundColor: ['#4ade80', '#fbbf24', '#38bdf8', '#818cf8'],
+                                borderRadius: 4
+                            }]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false }
+                    });
+                }
+            }, 100);
+        }
+    },
+    async sendGlobalPush() {
+        if(!this.pushMessage) return;
+        this.loading = true;
+        const res = await fetch('/api/v1/admin/push', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: this.pushMessage})
+        });
+        if(res.ok) {
+            const data = await res.json();
+            showToast(data.message, 'success');
+            this.pushMessage = '';
+        }
+        this.loading = false;
+    },
+    async loadRooms() {
+        const res = await fetch('/api/v1/rooms');
+        if(res.ok) {
+            const data = await res.json();
+            this.rooms = data.rooms;
+        }
+    },
+    async createRoom() {
+        if(!this.newRoomName || !this.newRoomSlug) return;
+        this.loading = true;
+        const res = await fetch('/api/v1/admin/rooms', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                name: this.newRoomName,
+                slug: this.newRoomSlug,
+                description: this.newRoomDesc
+            })
+        });
+        if(res.ok) {
+            showToast('게시판이 생성되었습니다.', 'success');
+            this.newRoomName = '';
+            this.newRoomSlug = '';
+            this.newRoomDesc = '';
+            await this.loadRooms();
+        } else {
+            const data = await res.json();
+            showToast(data.detail || '생성 실패', 'error');
+        }
+        this.loading = false;
+    },
+    async deleteRoom(roomId) {
+        if(!confirm('정말 이 게시판을 삭제하시겠습니까? 관련된 데이터가 모두 손실될 수 있습니다.')) return;
+        const res = await fetch(`/api/v1/admin/rooms/${roomId}`, { method: 'DELETE' });
+        if(res.ok) {
+            showToast('게시판이 삭제되었습니다.', 'success');
+            await this.loadRooms();
+        } else {
+            const data = await res.json();
+            showToast(data.detail || '삭제 실패', 'error');
+        }
+    },
     async loadPending() {
         const res = await fetch('/api/v1/admin/pending-members');
         if(res.ok) {
@@ -19,6 +115,20 @@
                 showToast('관리자 권한이 없습니다.', 'error');
                 setTimeout(() => { window.location.href = '/room/general'; }, 1000);
             }
+        }
+    },
+    async loadMembers() {
+        const res = await fetch(`/api/v1/admin/members?search=${encodeURIComponent(this.searchQuery)}`);
+        if(res.ok) {
+            const data = await res.json();
+            this.allMembers = data.members;
+        }
+    },
+    async loadVotes() {
+        const res = await fetch('/api/v1/admin/votes');
+        if(res.ok) {
+            const data = await res.json();
+            this.votes = data.votes;
         }
     },
     async createInvite() {
@@ -63,22 +173,139 @@
         } else {
             showToast('처리 중 오류가 발생했습니다.', 'error');
         }
+    },
+    async banMember(userId) {
+        if(!confirm('정말 이 회원을 강제 탈퇴(정지) 처리하시겠습니까?')) return;
+        const res = await fetch(`/api/v1/admin/members/${userId}/ban`, { method: 'PATCH' });
+        if(res.ok) {
+            const data = await res.json();
+            showToast(data.message, 'success');
+            await this.loadMembers();
+        } else {
+            const data = await res.json();
+            showToast(data.detail || '처리 중 오류가 발생했습니다.', 'error');
+        }
+    },
+    async warnMember(userId) {
+        const reason = prompt('경고 사유를 입력하세요 (사용자에게 알림 전송됨)');
+        if(!reason) return;
+        const res = await fetch(`/api/v1/admin/members/${userId}/warn`, { 
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({reason})
+        });
+        if(res.ok) {
+            const data = await res.json();
+            showToast(data.message, 'success');
+        } else {
+            const data = await res.json();
+            showToast(data.detail || '처리 중 오류가 발생했습니다.', 'error');
+        }
+    },
+    async createVote() {
+        const validOptions = this.newVoteOptions.filter(o => o.text.trim() !== '');
+        if(this.newVoteTitle.trim() === '' || validOptions.length < 2) {
+            showToast('투표 제목과 최소 2개의 항목을 입력하세요.', 'error');
+            return;
+        }
+        this.loading = true;
+        try {
+            const res = await fetch('/api/v1/admin/votes', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    title: this.newVoteTitle,
+                    is_multiple: this.newVoteIsMultiple,
+                    options: validOptions
+                })
+            });
+            if(res.ok) {
+                showToast('투표가 생성되었습니다.', 'success');
+                this.newVoteTitle = '';
+                this.newVoteOptions = [{text: ''}, {text: ''}];
+                this.newVoteIsMultiple = false;
+                await this.loadVotes();
+            } else {
+                showToast('투표 생성 실패', 'error');
+            }
+        } finally {
+            this.loading = false;
+        }
+    },
+    async closeVote(voteId) {
+        if(!confirm('이 투표를 종료하시겠습니까?')) return;
+        const res = await fetch(`/api/v1/admin/votes/${voteId}/close`, { method: 'PATCH' });
+        if(res.ok) {
+            showToast('투표가 종료되었습니다.', 'success');
+            await this.loadVotes();
+        } else {
+            showToast('투표 종료 실패', 'error');
+        }
     }
-}" x-init="loadPending()">
+}" x-init="loadStats(); loadPending(); loadMembers(); loadVotes(); loadRooms();">
 
     <div class="mb-8">
         <h1 class="text-3xl font-bold text-text-primary mb-2">관리자 대시보드 🛠️</h1>
         <p class="text-text-secondary">회원 가입 승인 및 시스템 관리</p>
     </div>
 
+    <!-- Admin Tabs -->
+    <div class="flex flex-wrap space-x-1 sm:space-x-4 mb-8 border-b border-border">
+        <button @click="activeTab = 'dashboard'" 
+                :class="activeTab === 'dashboard' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
+                class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition">
+            대시보드 통계
+        </button>
+        <button @click="activeTab = 'pending'" 
+                :class="activeTab === 'pending' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
+                class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition flex items-center">
+            가입 승인 대기 
+            <span class="ml-2 bg-warning text-bg-base text-[10px] px-1.5 py-0.5 rounded-full" x-show="pendingMembers.length > 0" x-text="pendingMembers.length"></span>
+        </button>
+        <button @click="activeTab = 'members'" 
+                :class="activeTab === 'members' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
+                class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition">
+            전체 회원 관리
+        </button>
+        <button @click="activeTab = 'votes'" 
+                :class="activeTab === 'votes' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
+                class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition">
+            투표 관리
+        </button>
+        <button @click="activeTab = 'rooms'" 
+                :class="activeTab === 'rooms' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
+                class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition">
+            게시판 관리
+        </button>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        <!-- Left Column: Pending Approvals -->
+        <!-- Left Column: Main Content Area -->
         <div class="lg:col-span-2 space-y-6">
-            <h2 class="text-xl font-bold text-text-primary flex items-center space-x-2">
-                <span>가입 승인 대기자</span>
-                <span class="bg-warning text-bg-base text-xs px-2 py-1 rounded-full" x-text="pendingMembers.length"></span>
-            </h2>
+            
+            <!-- Dashboard Tab -->
+            <div x-show="activeTab === 'dashboard'" style="display: none;" class="grid grid-cols-2 gap-4 sm:gap-6">
+                <div class="bg-bg-surface border border-border rounded-xl p-6 shadow-sm">
+                    <div class="text-sm text-text-secondary mb-2">총 회원 수</div>
+                    <div class="text-3xl font-bold text-accent" x-text="stats.total_users"></div>
+                </div>
+                <div class="bg-bg-surface border border-border rounded-xl p-6 shadow-sm">
+                    <div class="text-sm text-text-secondary mb-2">가입 대기 중</div>
+                    <div class="text-3xl font-bold text-warning" x-text="stats.pending_users"></div>
+                </div>
+                <div class="bg-bg-surface border border-border rounded-xl p-6 shadow-sm">
+                    <div class="text-sm text-text-secondary mb-2">누적 게시글</div>
+                    <div class="text-3xl font-bold text-text-primary" x-text="stats.total_posts"></div>
+                </div>
+                <div class="bg-bg-surface border border-border rounded-xl p-6 shadow-sm">
+                    <div class="text-sm text-text-secondary mb-2">누적 댓글</div>
+                    <div class="text-3xl font-bold text-text-primary" x-text="stats.total_comments"></div>
+                </div>
+            </div>
+
+            <!-- Pending Members Tab -->
+            <div x-show="activeTab === 'pending'" style="display: none;">
             
             <div class="bg-bg-surface border border-border rounded-xl shadow-lg overflow-hidden">
                 <ul class="divide-y divide-border">
@@ -116,6 +343,191 @@
                         <li class="p-12 text-center text-text-secondary">현재 가입 대기 중인 회원이 없습니다.</li>
                     </template>
                 </ul>
+            </div>
+            </div>
+
+            <!-- All Members Tab -->
+            <div x-show="activeTab === 'members'" style="display: none;" class="space-y-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h2 class="text-xl font-bold text-text-primary">전체 회원 목록</h2>
+                    <div class="flex">
+                        <input type="text" x-model="searchQuery" @keyup.enter="loadMembers()" placeholder="이름/이메일 검색" class="px-3 py-1.5 border border-border rounded-l text-sm focus:outline-none focus:border-accent bg-bg-base">
+                        <button @click="loadMembers()" class="px-3 py-1.5 bg-accent text-bg-base rounded-r text-sm hover:opacity-90 transition">검색</button>
+                    </div>
+                </div>
+                
+                <div class="bg-bg-surface border border-border rounded-xl shadow-lg overflow-x-auto">
+                    <table class="w-full text-left border-collapse min-w-[600px]">
+                        <thead>
+                            <tr class="bg-bg-raised text-text-secondary text-sm border-b border-border">
+                                <th class="p-4 font-semibold">회원정보</th>
+                                <th class="p-4 font-semibold">등급/포인트</th>
+                                <th class="p-4 font-semibold">상태</th>
+                                <th class="p-4 font-semibold text-right">관리</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-border">
+                            <template x-for="member in allMembers" :key="member.id">
+                                <tr class="hover:bg-bg-base transition">
+                                    <td class="p-4">
+                                        <div class="font-bold text-text-primary" x-text="member.username"></div>
+                                        <div class="text-xs text-text-secondary mt-0.5" x-text="member.email"></div>
+                                        <div class="text-[10px] text-text-muted mt-1" x-text="`가입: ${new Date(member.created_at).toLocaleDateString()}`"></div>
+                                    </td>
+                                    <td class="p-4">
+                                        <span class="inline-block bg-accent bg-opacity-20 text-accent px-2 py-0.5 rounded-full text-xs font-bold mb-1" x-text="`Lv.${member.level}`"></span>
+                                        <div class="text-sm font-medium text-text-secondary" x-text="`${member.points.toLocaleString()} P`"></div>
+                                    </td>
+                                    <td class="p-4">
+                                        <span class="px-2 py-1 text-xs font-bold rounded-full"
+                                              :class="{
+                                                'bg-success bg-opacity-20 text-success': member.status === 'approved',
+                                                'bg-warning bg-opacity-20 text-warning': member.status === 'pending',
+                                                'bg-danger bg-opacity-20 text-danger': member.status === 'banned' || member.status === 'rejected'
+                                              }" x-text="member.status.toUpperCase()"></span>
+                                        <div x-show="member.role === 'admin'" class="mt-1">
+                                            <span class="px-2 py-0.5 bg-accent text-bg-base text-[10px] rounded">ADMIN</span>
+                                        </div>
+                                    </td>
+                                    <td class="p-4 text-right align-middle space-x-2">
+                                        <template x-if="member.role !== 'admin' && member.status !== 'banned'">
+                                            <button @click="warnMember(member.id)" class="px-3 py-1.5 border border-warning text-warning text-xs font-medium rounded hover:bg-warning hover:bg-opacity-10 transition">
+                                                경고
+                                            </button>
+                                        </template>
+                                        <template x-if="member.role !== 'admin' && member.status !== 'banned'">
+                                            <button @click="banMember(member.id)" class="px-3 py-1.5 border border-danger text-danger text-xs font-medium rounded hover:bg-danger hover:text-white transition">
+                                                정지
+                                            </button>
+                                        </template>
+                                        <template x-if="member.status === 'banned'">
+                                            <span class="text-xs text-danger font-medium px-2 py-1 bg-danger bg-opacity-10 rounded">정지됨</span>
+                                        </template>
+                                    </td>
+                                </tr>
+                            </template>
+                            <template x-if="allMembers.length === 0">
+                                <tr>
+                                    <td colspan="4" class="p-8 text-center text-text-secondary">회원 정보가 없습니다.</td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Votes Tab -->
+            <div x-show="activeTab === 'votes'" style="display: none;" class="space-y-6">
+                <!-- Create Vote -->
+                <div class="bg-bg-surface border border-border p-6 rounded-xl shadow-lg">
+                    <h3 class="text-lg font-bold text-text-primary mb-4">새 투표 작성 (홈 화면 노출)</h3>
+                    <form @submit.prevent="createVote()" class="space-y-4">
+                        <div>
+                            <label class="block text-sm text-text-secondary mb-1">투표 제목</label>
+                            <input type="text" x-model="newVoteTitle" required placeholder="투표 주제를 입력하세요" class="w-full px-4 py-2 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-text-secondary mb-2">투표 항목</label>
+                            <template x-for="(opt, index) in newVoteOptions" :key="index">
+                                <div class="flex items-center space-x-2 mb-2">
+                                    <input type="text" x-model="opt.text" :placeholder="`항목 ${index + 1}`" class="flex-1 px-4 py-2 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary text-sm">
+                                    <button type="button" @click="newVoteOptions.splice(index, 1)" class="text-danger hover:opacity-80 p-2" x-show="newVoteOptions.length > 2">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                    </button>
+                                </div>
+                            </template>
+                            <button type="button" @click="newVoteOptions.push({text: ''})" class="text-sm text-accent hover:underline mt-2 flex items-center">
+                                + 항목 추가
+                            </button>
+                        </div>
+                        <div class="flex items-center space-x-2 mt-4">
+                            <input type="checkbox" id="is_multiple" x-model="newVoteIsMultiple" class="w-4 h-4 text-accent border-border rounded focus:ring-accent bg-bg-base">
+                            <label for="is_multiple" class="text-sm text-text-primary">복수 선택 허용</label>
+                        </div>
+                        <button type="submit" :disabled="loading" class="w-full py-2.5 bg-accent text-bg-base font-medium rounded-lg hover:opacity-90 transition disabled:opacity-50">
+                            <span x-text="loading ? '생성 중...' : '투표 등록'"></span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- List Votes -->
+                <div class="bg-bg-surface border border-border rounded-xl shadow-lg overflow-hidden">
+                    <ul class="divide-y divide-border">
+                        <template x-for="vote in votes" :key="vote.id">
+                            <li class="p-6 flex items-center justify-between hover:bg-bg-raised transition">
+                                <div>
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <span class="px-2 py-0.5 text-[10px] font-bold rounded-full"
+                                              :class="vote.status === 'active' ? 'bg-success bg-opacity-20 text-success' : 'bg-border text-text-muted'"
+                                              x-text="vote.status === 'active' ? '진행 중' : '종료됨'"></span>
+                                        <span class="text-xs text-text-secondary" x-text="new Date(vote.created_at).toLocaleDateString()"></span>
+                                    </div>
+                                    <h4 class="text-lg font-bold text-text-primary" x-text="vote.title"></h4>
+                                </div>
+                                <div>
+                                    <button x-show="vote.status === 'active'" @click="closeVote(vote.id)" class="px-4 py-2 border border-warning text-warning text-sm font-medium rounded hover:bg-warning hover:bg-opacity-10 transition">
+                                        종료하기
+                                    </button>
+                                </div>
+                            </li>
+                        </template>
+                        <template x-if="votes.length === 0">
+                            <li class="p-8 text-center text-text-secondary">등록된 투표가 없습니다.</li>
+                        </template>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Rooms Tab -->
+            <div x-show="activeTab === 'rooms'" style="display: none;" class="space-y-6">
+                <!-- Create Room -->
+                <div class="bg-bg-surface border border-border p-6 rounded-xl shadow-lg">
+                    <h3 class="text-lg font-bold text-text-primary mb-4">새 게시판 생성</h3>
+                    <form @submit.prevent="createRoom()" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm text-text-secondary mb-1">게시판 이름</label>
+                                <input type="text" x-model="newRoomName" required placeholder="예: 가치투자방" class="w-full px-4 py-2 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary">
+                            </div>
+                            <div>
+                                <label class="block text-sm text-text-secondary mb-1">게시판 URL 슬러그</label>
+                                <input type="text" x-model="newRoomSlug" required placeholder="예: value-invest" class="w-full px-4 py-2 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-text-secondary mb-1">게시판 설명 (선택)</label>
+                            <input type="text" x-model="newRoomDesc" placeholder="간단한 설명을 적어주세요" class="w-full px-4 py-2 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary">
+                        </div>
+                        <button type="submit" :disabled="loading" class="w-full py-2.5 bg-accent text-bg-base font-medium rounded-lg hover:opacity-90 transition disabled:opacity-50">
+                            <span x-text="loading ? '생성 중...' : '게시판 생성'"></span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- List Rooms -->
+                <div class="bg-bg-surface border border-border rounded-xl shadow-lg overflow-hidden">
+                    <ul class="divide-y divide-border">
+                        <template x-for="room in rooms" :key="room.id">
+                            <li class="p-6 flex items-center justify-between hover:bg-bg-raised transition">
+                                <div>
+                                    <h4 class="text-lg font-bold text-text-primary">
+                                        <span x-text="room.name"></span>
+                                        <span class="text-xs text-text-secondary ml-2 font-normal" x-text="`/${room.slug}`"></span>
+                                    </h4>
+                                    <p class="text-sm text-text-muted mt-1" x-text="room.description || '설명 없음'"></p>
+                                </div>
+                                <div>
+                                    <button x-show="room.slug !== 'general'" @click="deleteRoom(room.id)" class="px-4 py-2 border border-danger text-danger text-sm font-medium rounded hover:bg-danger hover:bg-opacity-10 transition">
+                                        삭제
+                                    </button>
+                                </div>
+                            </li>
+                        </template>
+                        <template x-if="rooms.length === 0">
+                            <li class="p-8 text-center text-text-secondary">게시판이 없습니다.</li>
+                        </template>
+                    </ul>
+                </div>
             </div>
         </div>
 

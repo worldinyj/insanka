@@ -36,10 +36,42 @@ async def validate_upload(file: UploadFile, config_type: str = "proof_image"):
     
     return content, mime
 
+import boto3
+import asyncio
+from app.config import settings
+import uuid
+
 async def upload_proof_image(file: UploadFile) -> str:
-    # Render 무료 환경의 휘발성 파일시스템 문제를 우회하기 위해 
-    # 증빙 이미지를 Base64 문자열로 변환하여 DB에 직접 저장합니다.
     content, mime = await validate_upload(file, "proof_image")
-    import base64
-    b64 = base64.b64encode(content).decode('utf-8')
-    return f"data:{mime};base64,{b64}"
+    
+    # If S3 is not configured, fallback to Base64
+    if not all([settings.AWS_ACCESS_KEY, settings.AWS_SECRET_KEY, settings.S3_BUCKET_NAME, settings.S3_REGION]):
+        import base64
+        b64 = base64.b64encode(content).decode('utf-8')
+        return f"data:{mime};base64,{b64}"
+
+    # Use S3
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY,
+        aws_secret_access_key=settings.AWS_SECRET_KEY,
+        region_name=settings.S3_REGION
+    )
+    
+    ext = Path(file.filename).suffix.lower()
+    object_name = f"proofs/{uuid.uuid4().hex}{ext}"
+    
+    def upload_to_s3():
+        s3_client.put_object(
+            Bucket=settings.S3_BUCKET_NAME,
+            Key=object_name,
+            Body=content,
+            ContentType=mime,
+            ACL='public-read' # adjust as necessary, Render/AWS policies apply
+        )
+        
+    await asyncio.to_thread(upload_to_s3)
+    
+    # Return the S3 public URL
+    return f"https://{settings.S3_BUCKET_NAME}.s3.{settings.S3_REGION}.amazonaws.com/{object_name}"
+

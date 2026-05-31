@@ -7,14 +7,56 @@
     slug: '{{ slug }}',
     cursor: null,
     posts: [],
+    events: [],
     loading: false,
     hasMore: true,
+    postType: new URLSearchParams(window.location.search).get('type') === 'disclosure' ? 'disclosure' : new URLSearchParams(window.location.search).get('type') === 'chat' ? 'chat' : new URLSearchParams(window.location.search).get('type') === 'events' ? 'events' : 'feed',
+    currentUserRole: null,
+    
+    // Events State
+    newEvent: {title: '', description: '', start_time: '', end_time: '', location: ''},
+    eventLoading: false,
+    
+    // Chat State
+    chatMessages: [],
+    chatInput: '',
+    ws: null,
+    
+    async init() {
+        try {
+            const res = await fetch('/api/v1/users/me');
+            if (res.ok) {
+                const user = await res.json();
+                this.currentUserRole = user.role;
+            }
+        } catch(e) {}
+        this.loadPosts();
+    },
+    
+    switchTab(type) {
+        if(this.postType === type) return;
+        this.postType = type;
+        this.posts = [];
+        this.cursor = null;
+        this.hasMore = true;
+        window.history.pushState({}, '', `/room/${this.slug}?type=${type}`);
+        if(type === 'chat') {
+            this.initChat();
+        } else if (type === 'events') {
+            if(this.ws) { this.ws.close(); this.ws = null; }
+            this.loadEvents();
+        } else {
+            if(this.ws) { this.ws.close(); this.ws = null; }
+            this.loadPosts();
+        }
+    },
+
     async loadPosts() {
         if (this.loading || !this.hasMore) return;
         this.loading = true;
-        let url = `/api/v1/rooms/${this.slug}/posts`;
+        let url = `/api/v1/rooms/${this.slug}/posts?post_type=${this.postType}`;
         if (this.cursor) {
-            url += `?cursor=${this.cursor}`;
+            url += `&cursor=${this.cursor}`;
         }
         try {
             const res = await fetch(url);
@@ -33,22 +75,155 @@
         } finally {
             this.loading = false;
         }
+    },
+
+    async loadEvents() {
+        this.loading = true;
+        try {
+            const res = await fetch(`/api/v1/rooms/${this.slug}/events`);
+            const data = await res.json();
+            this.events = data.events;
+        } finally {
+            this.loading = false;
+        }
+    },
+
+    async createEvent() {
+        if(!this.newEvent.title || !this.newEvent.start_time) {
+            showToast('제목과 시작 시간을 입력해주세요.', 'warning');
+            return;
+        }
+        this.eventLoading = true;
+        try {
+            const payload = {
+                title: this.newEvent.title,
+                description: this.newEvent.description || null,
+                start_time: new Date(this.newEvent.start_time).toISOString(),
+                end_time: this.newEvent.end_time ? new Date(this.newEvent.end_time).toISOString() : null,
+                location: this.newEvent.location || null
+            };
+            const res = await fetch(`/api/v1/rooms/${this.slug}/events`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            if(res.ok) {
+                showToast('일정이 등록되었습니다.', 'success');
+                this.newEvent = {title: '', description: '', start_time: '', end_time: '', location: ''};
+                await this.loadEvents();
+            } else {
+                showToast('일정 등록 실패', 'error');
+            }
+        } finally {
+            this.eventLoading = false;
+        }
+    },
+
+    async deleteEvent(eventId) {
+        if(!confirm('이 일정을 삭제하시겠습니까?')) return;
+        const res = await fetch(`/api/v1/rooms/${this.slug}/events/${eventId}`, { method: 'DELETE' });
+        if(res.ok) {
+            showToast('삭제되었습니다.', 'success');
+            await this.loadEvents();
+        } else {
+            showToast('삭제 실패', 'error');
+        }
+    },
+
+    async toggleAttend(eventId, isAttending) {
+        const method = isAttending ? 'DELETE' : 'POST';
+        const res = await fetch(`/api/v1/events/${eventId}/attend`, { method });
+        if(res.ok) {
+            await this.loadEvents();
+        } else {
+            showToast('요청 실패', 'error');
+        }
+    },
+
+    async initChat() {
+        if (this.ws) return; // Already connected
+        
+        // 1. Load History
+        try {
+            const res = await fetch(`/api/v1/chat/${this.slug}/history`);
+            if (res.ok) {
+                const data = await res.json();
+                this.chatMessages = data.history;
+                this.scrollToBottom();
+            }
+        } catch(e) {}
+        
+        // 2. Connect WebSocket
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/v1/chat/${this.slug}/ws`;
+        this.ws = new WebSocket(wsUrl);
+        
+        this.ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            this.chatMessages.push(data);
+            this.scrollToBottom();
+        };
+        
+        this.ws.onclose = () => {
+            this.ws = null;
+            // Optionally auto-reconnect here
+        };
+    },
+    
+    sendChat() {
+        if (!this.chatInput.trim() || !this.ws) return;
+        this.ws.send(this.chatInput);
+        this.chatInput = '';
+    },
+    
+    scrollToBottom() {
+        this.$nextTick(() => {
+            const container = document.getElementById('chat-container');
+            if (container) container.scrollTop = container.scrollHeight;
+        });
     }
-}" x-init="loadPosts()">
+}">
 
     <div class="flex justify-between items-center mb-6">
         <h1 class="text-xl sm:text-2xl font-bold text-text-primary">게시판 ({{ slug }})</h1>
-        <a :href="`/room/${slug}/write`" class="px-4 py-2 bg-accent text-bg-base font-semibold rounded-md hover:bg-opacity-90 transition shadow-sm text-sm sm:text-base whitespace-nowrap ml-4">
-            글쓰기
-        </a>
+        <template x-if="postType === 'feed' || (postType === 'disclosure' && (currentUserRole === 'admin' || currentUserRole === 'staff'))">
+            <a :href="`/room/${slug}/write?type=${postType}`" class="px-4 py-2 bg-accent text-bg-base font-semibold rounded-md hover:bg-opacity-90 transition shadow-sm text-sm sm:text-base whitespace-nowrap ml-4">
+                글쓰기
+            </a>
+        </template>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex space-x-1 mb-6 border-b border-border">
+        <button @click="switchTab('feed')" 
+                :class="postType === 'feed' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
+                class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition">
+            제너럴 피드
+        </button>
+        <button @click="switchTab('disclosure')" 
+                :class="postType === 'disclosure' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
+                class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition flex items-center">
+            공시방 <span class="ml-1.5 px-1.5 py-0.5 bg-accent bg-opacity-10 text-accent text-xs rounded-full">공식</span>
+        </button>
+        <button @click="switchTab('chat')" 
+                :class="postType === 'chat' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
+                class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition flex items-center">
+            실시간 채팅 💬
+        </button>
+        <button @click="switchTab('events')" 
+                :class="postType === 'events' ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'"
+                class="px-4 py-3 font-semibold text-sm sm:text-base border-b-2 transition flex items-center">
+            일정(Calendar) 📅
+        </button>
     </div>
 
     <!-- Vote component area (Optional) -->
-    <div class="mb-6">
+    <div class="mb-6" x-show="postType === 'feed'">
         {% include 'components/vote.html' ignore missing %}
     </div>
 
-    <div class="bg-bg-surface border border-border rounded-xl shadow-lg overflow-hidden">
+    <!-- Posts List UI -->
+    <div x-show="postType === 'feed' || postType === 'disclosure'" class="bg-bg-surface border border-border rounded-xl shadow-lg overflow-hidden">
         <ul class="divide-y divide-border">
             <template x-for="post in posts" :key="post.id">
                 <li>
@@ -61,7 +236,12 @@
                                 <span x-text="new Date(post.created_at).toLocaleDateString()" class="text-text-muted sm:text-text-secondary"></span>
                             </div>
                         </div>
-                        <h2 class="text-lg sm:text-xl font-bold text-text-primary mb-2 leading-snug" x-text="post.title"></h2>
+                        <div class="flex items-center space-x-2 mb-2">
+                            <template x-if="post.post_type === 'disclosure' && post.disclosure_tag">
+                                <span class="px-2 py-1 bg-info text-white text-xs font-bold rounded" x-text="post.disclosure_tag"></span>
+                            </template>
+                            <h2 class="text-lg sm:text-xl font-bold text-text-primary leading-snug" x-text="post.title"></h2>
+                        </div>
                         <p class="text-sm sm:text-base text-text-secondary line-clamp-2 mb-4" x-text="post.content_preview"></p>
                         
                         <div class="flex items-center space-x-6 text-sm text-text-muted">
@@ -87,6 +267,153 @@
             <template x-if="loading">
                 <span class="text-text-muted text-sm">로딩 중...</span>
             </template>
+        </div>
+    </div>
+
+    <!-- Events UI -->
+    <div x-show="postType === 'events'" style="display: none;" class="space-y-6">
+        <!-- Admin Event Form -->
+        <template x-if="currentUserRole === 'admin' || currentUserRole === 'editor'">
+            <div class="bg-bg-surface border border-border p-6 rounded-xl shadow-lg">
+                <h3 class="text-lg font-bold text-text-primary mb-4">새 일정 등록 (관리자)</h3>
+                <form @submit.prevent="createEvent()" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm text-text-secondary mb-1">일정 제목</label>
+                        <input type="text" x-model="newEvent.title" required placeholder="예: 2분기 실적 발표" class="w-full px-4 py-2 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-text-secondary mb-1">시작 일시</label>
+                        <input type="datetime-local" x-model="newEvent.start_time" required class="w-full px-4 py-2 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-text-secondary mb-1">종료 일시 (선택)</label>
+                        <input type="datetime-local" x-model="newEvent.end_time" class="w-full px-4 py-2 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm text-text-secondary mb-1">장소/링크 (선택)</label>
+                        <input type="text" x-model="newEvent.location" placeholder="오프라인 주소 또는 화상회의 링크" class="w-full px-4 py-2 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm text-text-secondary mb-1">상세 내용 (선택)</label>
+                        <textarea x-model="newEvent.description" rows="2" class="w-full px-4 py-2 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary resize-none"></textarea>
+                    </div>
+                    <div class="sm:col-span-2 mt-2">
+                        <button type="submit" :disabled="eventLoading" class="w-full py-2 bg-accent text-bg-base font-medium rounded-lg hover:opacity-90 transition disabled:opacity-50">
+                            <span x-text="eventLoading ? '등록 중...' : '일정 등록'"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </template>
+
+        <!-- Events List -->
+        <div class="bg-bg-surface border border-border rounded-xl shadow-lg overflow-hidden">
+            <ul class="divide-y divide-border">
+                <template x-for="evt in events" :key="evt.id">
+                    <li class="p-6 hover:bg-bg-raised transition">
+                        <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                            <div class="flex-1">
+                                <div class="flex items-center space-x-2 mb-1">
+                                    <span class="px-2 py-0.5 bg-info bg-opacity-10 text-info text-xs font-bold rounded" x-text="new Date(evt.start_time).toLocaleDateString()"></span>
+                                    <span class="text-xs text-text-secondary" x-text="new Date(evt.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})"></span>
+                                    <template x-if="evt.end_time">
+                                        <span class="text-xs text-text-secondary" x-text="`~ ${new Date(evt.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`"></span>
+                                    </template>
+                                </div>
+                                <h3 class="text-lg font-bold text-text-primary mb-2" x-text="evt.title"></h3>
+                                <template x-if="evt.location">
+                                    <div class="text-sm text-text-secondary mb-1 flex items-center">
+                                        <span>📍 </span><span class="ml-1" x-text="evt.location"></span>
+                                    </div>
+                                </template>
+                                <template x-if="evt.description">
+                                    <p class="text-sm text-text-secondary whitespace-pre-wrap mt-2 bg-bg-base p-3 rounded" x-text="evt.description"></p>
+                                </template>
+                                <div class="mt-3 text-sm text-text-muted">
+                                    <span class="font-medium text-accent" x-text="evt.attendee_count"></span>명 참석 예정
+                                </div>
+                            </div>
+                            <div class="flex flex-row sm:flex-col gap-2 shrink-0">
+                                <button @click="toggleAttend(evt.id, evt.is_attending)" 
+                                        class="px-4 py-2 font-medium rounded-lg text-sm transition text-center flex-1 sm:flex-none"
+                                        :class="evt.is_attending ? 'bg-success bg-opacity-20 text-success hover:bg-opacity-30' : 'bg-accent text-bg-base hover:opacity-90'">
+                                    <span x-text="evt.is_attending ? '참석 취소' : '참석하기'"></span>
+                                </button>
+                                <template x-if="currentUserRole === 'admin' || currentUserRole === 'editor'">
+                                    <button @click="deleteEvent(evt.id)" class="px-4 py-2 border border-danger text-danger font-medium rounded-lg text-sm hover:bg-danger hover:bg-opacity-10 transition text-center flex-1 sm:flex-none">
+                                        삭제
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </li>
+                </template>
+                <template x-if="events.length === 0 && !loading">
+                    <li class="p-12 text-center text-text-secondary">등록된 일정이 없습니다.</li>
+                </template>
+            </ul>
+        </div>
+    </div>
+    
+    <!-- Chat UI -->
+    <div x-show="postType === 'chat'" style="display: none;" class="bg-bg-surface border border-border rounded-xl shadow-lg flex flex-col h-[600px] overflow-hidden relative">
+        <!-- Overlay if not logged in -->
+        <template x-if="!user">
+            <div class="absolute inset-0 bg-bg-surface bg-opacity-90 flex flex-col items-center justify-center z-10 backdrop-blur-sm">
+                <p class="text-text-primary font-bold mb-4">로그인 후 실시간 채팅에 참여하세요.</p>
+                <a href="/login" class="px-6 py-2 bg-accent text-white font-semibold rounded-md hover:opacity-90">로그인하기</a>
+            </div>
+        </template>
+        
+        <!-- Chat Messages -->
+        <div id="chat-container" class="flex-1 overflow-y-auto p-4 space-y-4 bg-[#F5F5F0]">
+            <template x-for="msg in chatMessages" :key="msg.id || msg.created_at">
+                <div>
+                    <!-- System Message -->
+                    <template x-if="msg.type === 'system'">
+                        <div class="flex justify-center my-2">
+                            <span class="bg-black bg-opacity-10 text-text-secondary text-xs px-3 py-1 rounded-full" x-text="msg.content"></span>
+                        </div>
+                    </template>
+                    
+                    <!-- Chat Message -->
+                    <template x-if="msg.type !== 'system'">
+                        <div class="flex flex-col max-w-[80%]" :class="user && msg.author.id === user.id ? 'ml-auto items-end' : 'mr-auto items-start'">
+                            
+                            <template x-if="!user || msg.author.id !== user.id">
+                                <div class="flex items-center space-x-1 mb-1 ml-1">
+                                    <span class="text-[10px] font-bold bg-accent bg-opacity-20 text-accent px-1.5 py-0.5 rounded" x-text="`Lv.${msg.author.level}`"></span>
+                                    <span class="text-xs text-text-secondary font-medium" x-text="msg.author.username"></span>
+                                </div>
+                            </template>
+                            
+                            <div class="flex items-end space-x-2" :class="user && msg.author.id === user.id ? 'flex-row-reverse space-x-reverse' : ''">
+                                <div class="px-4 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words"
+                                     :class="user && msg.author.id === user.id ? 'bg-accent text-white rounded-br-sm shadow-md' : 'bg-white border border-border text-text-primary rounded-bl-sm shadow-sm'"
+                                     x-text="msg.content"></div>
+                                <div class="text-[10px] text-text-muted shrink-0 pb-1" x-text="new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})"></div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </template>
+            <template x-if="chatMessages.length === 0">
+                <div class="text-center text-text-muted mt-10 text-sm">대화 내용이 없습니다. 첫 인사를 건네보세요!</div>
+            </template>
+        </div>
+        
+        <!-- Chat Input -->
+        <div class="p-3 bg-white border-t border-border">
+            <form @submit.prevent="sendChat" class="flex items-center space-x-2">
+                <input type="text" x-model="chatInput" placeholder="메시지를 입력하세요..." 
+                       class="flex-1 bg-[#F5F5F0] border border-border px-4 py-2.5 rounded-full text-sm focus:outline-none focus:border-accent transition"
+                       :disabled="!ws">
+                <button type="submit" 
+                        class="bg-accent text-white w-10 h-10 rounded-full flex justify-center items-center hover:opacity-90 transition disabled:opacity-50 shrink-0"
+                        :disabled="!ws || !chatInput.trim()">
+                    ➤
+                </button>
+            </form>
         </div>
     </div>
 </div>

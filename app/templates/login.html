@@ -53,6 +53,7 @@
                 <input id="remember-me" type="checkbox" class="h-4 w-4 text-accent border-border rounded bg-bg-base focus:ring-accent">
                 <label for="remember-me" class="ml-2 block text-text-secondary">로그인 유지</label>
             </div>
+            <a href="/password-reset" class="text-accent hover:text-opacity-80">비밀번호 찾기</a>
         </div>
 
         <button type="submit" :disabled="submitting" class="w-full py-3 bg-accent text-bg-base font-bold rounded-md hover:bg-opacity-90 transition disabled:opacity-50" x-text="submitting ? '로그인 중...' : '로그인'"></button>

@@ -7,6 +7,10 @@
     postId: {{ post_id }},
     post: null,
     comments: [],
+    currentUser: null,
+    editMode: false,
+    editTitle: '',
+    editContent: '',
     get commentTree() {
         const roots = this.comments.filter(c => !c.parent_id);
         roots.forEach(root => {
@@ -17,11 +21,25 @@
     replyingTo: null,
     replyContent: '',
     newComment: '',
+    async initData() {
+        try {
+            const userRes = await fetch('/api/v1/users/me');
+            if(userRes.ok) this.currentUser = await userRes.json();
+        } catch(e) {}
+        await this.loadPost();
+    },
     async loadPost() {
         const res = await fetch(`/api/v1/posts/${this.postId}`);
-        const data = await res.json();
-        this.post = data;
-        this.comments = data.comments;
+        if(res.ok) {
+            const data = await res.json();
+            this.post = data;
+            this.comments = data.comments;
+            this.editTitle = data.title;
+            this.editContent = data.content;
+        } else {
+            showToast('게시글을 불러올 수 없습니다.', 'error');
+            setTimeout(() => { window.location.href = '/room/general'; }, 1000);
+        }
     },
     async toggleLike() {
         const res = await fetch(`/api/v1/posts/${this.postId}/like`, { method: 'POST' });
@@ -63,24 +81,88 @@
         } else {
             showToast('답글 등록에 실패했습니다.', 'error');
         }
+    },
+    async updatePost() {
+        if(!this.editTitle.trim() || !this.editContent.trim()) return;
+        const res = await fetch(`/api/v1/posts/${this.postId}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ title: this.editTitle, content: this.editContent })
+        });
+        if(res.ok) {
+            this.editMode = false;
+            await this.loadPost();
+            showToast('수정되었습니다.', 'success');
+        } else {
+            showToast('수정에 실패했습니다.', 'error');
+        }
+    },
+    async deletePost() {
+        if(!confirm('정말 이 게시글을 삭제하시겠습니까? 획득한 포인트가 회수됩니다.')) return;
+        const res = await fetch(`/api/v1/posts/${this.postId}`, { method: 'DELETE' });
+        if(res.ok) {
+            showToast('게시글이 삭제되었습니다.', 'success');
+            setTimeout(() => { window.location.href = '/room/general'; }, 1000);
+        } else {
+            showToast('삭제에 실패했습니다.', 'error');
+        }
+    },
+    async deleteComment(commentId) {
+        if(!confirm('정말 이 댓글을 삭제하시겠습니까? 획득한 포인트가 회수됩니다.')) return;
+        const res = await fetch(`/api/v1/posts/${this.postId}/comments/${commentId}`, { method: 'DELETE' });
+        if(res.ok) {
+            await this.loadPost();
+            showToast('댓글이 삭제되었습니다.', 'success');
+        } else {
+            showToast('삭제에 실패했습니다.', 'error');
+        }
     }
-}" x-init="loadPost()">
+}" x-init="initData()">
 
     <template x-if="post">
         <div>
             <!-- Header -->
-            <div class="border-b border-border pb-4 sm:pb-6 mb-4 sm:mb-6">
-                <h1 class="text-2xl sm:text-3xl font-bold text-text-primary mb-3 sm:mb-4 leading-snug" x-text="post.title"></h1>
-                <div class="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-text-secondary">
-                    <span class="bg-accent bg-opacity-20 text-accent px-2 py-0.5 rounded-full font-bold" x-text="`Lv.${post.author.level}`"></span>
-                    <span class="font-medium text-text-primary" x-text="post.author.username"></span>
-                    <span class="hidden sm:inline">•</span>
-                    <span x-text="new Date(post.created_at).toLocaleString()" class="text-text-muted sm:text-text-secondary"></span>
+            <div class="border-b border-border pb-4 sm:pb-6 mb-4 sm:mb-6 flex justify-between items-start">
+                <div x-show="!editMode" class="w-full">
+                    <h1 class="text-2xl sm:text-3xl font-bold text-text-primary mb-3 sm:mb-4 leading-snug">
+                        <span x-text="post.title"></span>
+                        <template x-if="post.updated_at">
+                            <span class="text-xs text-text-muted font-normal ml-2">(수정됨)</span>
+                        </template>
+                    </h1>
+                    <div class="flex flex-wrap items-center justify-between w-full">
+                        <div class="flex items-center gap-2 text-xs sm:text-sm text-text-secondary">
+                            <span class="bg-accent bg-opacity-20 text-accent px-2 py-0.5 rounded-full font-bold" x-text="`Lv.${post.author.level}`"></span>
+                            <span class="font-medium text-text-primary" x-text="post.author.username"></span>
+                            <span class="hidden sm:inline">•</span>
+                            <span x-text="new Date(post.created_at).toLocaleString()" class="text-text-muted sm:text-text-secondary"></span>
+                        </div>
+                        <template x-if="currentUser && (currentUser.id === post.author.id || currentUser.role === 'admin' || currentUser.role === 'staff')">
+                            <div class="flex space-x-2">
+                                <button @click="editMode = true" class="text-xs text-text-secondary hover:text-text-primary transition px-2 py-1 border border-border rounded">수정</button>
+                                <button @click="deletePost()" class="text-xs text-danger hover:opacity-80 transition px-2 py-1 border border-danger rounded">삭제</button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                
+                <!-- Edit Mode Header -->
+                <div x-show="editMode" class="w-full space-y-4" style="display: none;">
+                    <input type="text" x-model="editTitle" class="w-full px-4 py-2 text-xl font-bold border border-border rounded-md focus:border-accent focus:outline-none bg-bg-base">
                 </div>
             </div>
 
             <!-- Content -->
-            <div class="prose max-w-none text-text-primary mb-8 min-h-[200px]" x-text="post.content">
+            <div x-show="!editMode" class="prose max-w-none text-text-primary mb-8 min-h-[200px]" style="white-space: pre-wrap;" x-text="post.content">
+            </div>
+            
+            <!-- Edit Mode Content -->
+            <div x-show="editMode" class="mb-8" style="display: none;">
+                <textarea x-model="editContent" rows="10" class="w-full px-4 py-3 border border-border rounded-md focus:border-accent focus:outline-none resize-y bg-bg-base mb-4"></textarea>
+                <div class="flex justify-end space-x-2">
+                    <button @click="editMode = false; editTitle = post.title; editContent = post.content;" class="px-4 py-2 border border-border text-text-secondary rounded hover:bg-bg-raised transition text-sm">취소</button>
+                    <button @click="updatePost()" class="px-4 py-2 bg-accent text-bg-base rounded font-medium hover:opacity-90 transition text-sm">저장</button>
+                </div>
             </div>
 
             <!-- Actions -->
@@ -111,18 +193,25 @@
                     <template x-for="comment in commentTree" :key="comment.id">
                         <li class="bg-bg-raised p-4 rounded-lg border border-border">
                             <!-- Root Comment -->
-                            <div class="flex items-center space-x-2 text-sm text-text-secondary mb-2">
-                                <span class="bg-info bg-opacity-20 text-info px-1.5 py-0.5 rounded text-xs font-bold" x-text="`Lv.${comment.author.level}`"></span>
-                                <span class="font-medium text-text-primary" x-text="comment.author.username"></span>
-                                <span>•</span>
-                                <span class="text-xs" x-text="new Date(comment.created_at).toLocaleString()"></span>
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="flex items-center space-x-2 text-sm text-text-secondary">
+                                    <span class="bg-info bg-opacity-20 text-info px-1.5 py-0.5 rounded text-xs font-bold" x-text="`Lv.${comment.author.level}`"></span>
+                                    <span class="font-medium text-text-primary" x-text="comment.author.username"></span>
+                                    <span>•</span>
+                                    <span class="text-xs" x-text="new Date(comment.created_at).toLocaleString()"></span>
+                                </div>
+                                <template x-if="currentUser && (currentUser.id === comment.author.id || currentUser.role === 'admin' || currentUser.role === 'staff') && comment.content !== '삭제된 댓글입니다.'">
+                                    <button @click="deleteComment(comment.id)" class="text-[10px] text-danger hover:underline">삭제</button>
+                                </template>
                             </div>
-                            <div class="text-text-primary mb-2" x-text="comment.content"></div>
+                            <div class="text-text-primary mb-2" :class="{'text-text-muted italic': comment.content === '삭제된 댓글입니다.'}" x-text="comment.content"></div>
                             
                             <!-- Reply Button -->
-                            <button @click="replyingTo = replyingTo === comment.id ? null : comment.id; replyContent = ''" class="text-xs text-text-secondary hover:text-text-primary transition flex items-center space-x-1">
-                                <span>↳ 답글 달기</span>
-                            </button>
+                            <template x-if="comment.content !== '삭제된 댓글입니다.'">
+                                <button @click="replyingTo = replyingTo === comment.id ? null : comment.id; replyContent = ''" class="text-xs text-text-secondary hover:text-text-primary transition flex items-center space-x-1">
+                                    <span>↳ 답글 달기</span>
+                                </button>
+                            </template>
 
                             <!-- Reply Form -->
                             <div x-show="replyingTo === comment.id" x-transition class="mt-3 ml-2 sm:ml-4 border-l-2 border-border pl-3 sm:pl-4">
@@ -137,13 +226,18 @@
                                 <ul class="mt-4 ml-2 sm:ml-4 space-y-3 border-l-2 border-border pl-3 sm:pl-4">
                                     <template x-for="reply in comment.replies" :key="reply.id">
                                         <li class="bg-bg-base p-3 rounded-md border border-border">
-                                            <div class="flex items-center space-x-2 text-sm text-text-secondary mb-1">
-                                                <span class="bg-info bg-opacity-20 text-info px-1.5 py-0.5 rounded text-xs font-bold" x-text="`Lv.${reply.author.level}`"></span>
-                                                <span class="font-medium text-text-primary" x-text="reply.author.username"></span>
-                                                <span>•</span>
-                                                <span class="text-xs" x-text="new Date(reply.created_at).toLocaleString()"></span>
+                                            <div class="flex justify-between items-start mb-1">
+                                                <div class="flex items-center space-x-2 text-sm text-text-secondary">
+                                                    <span class="bg-info bg-opacity-20 text-info px-1.5 py-0.5 rounded text-xs font-bold" x-text="`Lv.${reply.author.level}`"></span>
+                                                    <span class="font-medium text-text-primary" x-text="reply.author.username"></span>
+                                                    <span>•</span>
+                                                    <span class="text-xs" x-text="new Date(reply.created_at).toLocaleString()"></span>
+                                                </div>
+                                                <template x-if="currentUser && (currentUser.id === reply.author.id || currentUser.role === 'admin' || currentUser.role === 'staff') && reply.content !== '삭제된 댓글입니다.'">
+                                                    <button @click="deleteComment(reply.id)" class="text-[10px] text-danger hover:underline">삭제</button>
+                                                </template>
                                             </div>
-                                            <div class="text-text-primary text-sm" x-text="reply.content"></div>
+                                            <div class="text-text-primary text-sm" :class="{'text-text-muted italic': reply.content === '삭제된 댓글입니다.'}" x-text="reply.content"></div>
                                         </li>
                                     </template>
                                 </ul>

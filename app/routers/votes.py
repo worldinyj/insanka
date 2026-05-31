@@ -19,6 +19,47 @@ class VoteCreate(BaseModel):
     options: List[OptionCreate]
     is_multiple: bool = False
 
+@router.get("/votes/active")
+async def get_active_vote(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    from datetime import datetime, timezone
+    # Get the latest active vote globally
+    result = await db.execute(
+        select(Vote)
+        .where((Vote.ends_at == None) | (Vote.ends_at > datetime.now(timezone.utc)))
+        .order_by(Vote.created_at.desc())
+        .limit(1)
+    )
+    vote = result.scalar_one_or_none()
+    
+    if not vote:
+        return {"vote": None}
+        
+    options = (await db.execute(select(VoteOption).where(VoteOption.vote_id == vote.id))).scalars().all()
+    user_casts = (await db.execute(select(VoteCast).where(VoteCast.vote_id == vote.id, VoteCast.user_id == user.id))).scalars().all()
+    
+    total = sum([o.vote_count for o in options])
+    voted_option_ids = [c.option_id for c in user_casts]
+    
+    return {
+        "vote": {
+            "id": vote.id,
+            "title": vote.title,
+            "is_multiple": vote.is_multiple,
+            "has_voted": len(voted_option_ids) > 0,
+            "total_votes": total,
+            "options": [
+                {
+                    "id": o.id,
+                    "text": o.text,
+                    "count": o.vote_count,
+                    "is_voted": o.id in voted_option_ids,
+                    "percentage": round((o.vote_count / total * 100) if total > 0 else 0)
+                }
+                for o in options
+            ]
+        }
+    }
+
 @router.post("/rooms/{slug}/votes")
 async def create_vote(
     slug: str,
@@ -66,8 +107,11 @@ async def cast_vote(
             # Here we would also verify if opt_id belongs to vote_id
             db.add(VoteCast(vote_id=vote_id, user_id=user_id, option_id=opt_id))
             
-            # Simple increment, in production should use atomic update
             # e.g., update(VoteOption).where(id==opt_id).values(vote_count=VoteOption.vote_count + 1)
+            opt = (await db.execute(select(VoteOption).where(VoteOption.id == opt_id))).scalar_one_or_none()
+            if opt:
+                opt.vote_count += 1
+                
         await db.commit()
     except IntegrityError:
         await db.rollback()

@@ -12,6 +12,18 @@ class Settings(BaseSettings):
     FRONTEND_URL: Optional[str] = None
     BACKEND_URL: Optional[str] = None
 
+    # SMTP Settings
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: Optional[int] = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASS: Optional[str] = None
+    
+    # AWS S3 Settings
+    AWS_ACCESS_KEY: Optional[str] = None
+    AWS_SECRET_KEY: Optional[str] = None
+    S3_BUCKET_NAME: Optional[str] = None
+    S3_REGION: Optional[str] = None
+
     @property
     def get_database_url(self) -> str:
         url = self.DATABASE_URL

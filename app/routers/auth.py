@@ -90,3 +90,45 @@ async def refresh_token():
 async def logout(response: Response):
     response.delete_cookie("access_token")
     return {"message": "Logged out"}
+
+from pydantic import BaseModel
+class PasswordResetRequest(BaseModel):
+    email: str
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+@router.post("/password-reset/request")
+async def request_password_reset(
+    data: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    from app.utils.email import send_password_reset_email
+    user = (await db.execute(select(User).where(User.email == data.email))).scalar_one_or_none()
+    if user:
+        from datetime import timedelta
+        # generate a token
+        token = create_access_token({"sub": str(user.id), "type": "reset"}, timedelta(minutes=30))
+        await send_password_reset_email(user.email, token)
+    # Always return success to prevent email enumeration
+    return {"message": "이메일이 등록되어 있다면 재설정 링크가 발송됩니다."}
+
+@router.post("/password-reset/confirm")
+async def confirm_password_reset(
+    data: PasswordResetConfirm,
+    db: AsyncSession = Depends(get_db)
+):
+    from app.utils.security import decode_access_token
+    payload = decode_access_token(data.token)
+    if not payload or payload.get("type") != "reset":
+        raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 토큰입니다.")
+        
+    user_id = int(payload.get("sub"))
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+        
+    user.hashed_pw = get_password_hash(data.new_password)
+    await db.commit()
+    return {"message": "비밀번호가 성공적으로 재설정되었습니다."}

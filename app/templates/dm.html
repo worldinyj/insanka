@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}1:1 쪽지 - 인산가{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl w-full h-[calc(100vh-12rem)] min-h-[500px]" x-data="dmApp()" x-init="init()">
+    
+    <!-- Access Denied State -->
+    <template x-if="user && !hasPermission()">
+        <div class="flex flex-col items-center justify-center h-full text-center space-y-4">
+            <div class="text-6xl">🔒</div>
+            <h1 class="text-2xl font-bold text-text-primary">접근 권한이 없습니다</h1>
+            <p class="text-text-secondary">1:1 쪽지 기능은 <span class="font-bold text-accent">Lv.4 이상</span> 회원만 이용 가능합니다.<br>현재 등급: Lv.<span x-text="user.level"></span></p>
+            <a href="/room/general" class="mt-4 px-6 py-2 bg-accent text-white rounded font-medium hover:opacity-90 transition">메인으로 돌아가기</a>
+        </div>
+    </template>
+
+    <!-- Main DM Interface -->
+    <template x-if="user && hasPermission()">
+        <div class="flex h-full bg-bg-surface border border-border rounded-xl shadow-lg overflow-hidden">
+            
+            <!-- Left: Conversation List -->
+            <div class="w-80 border-r border-border flex flex-col bg-bg-base shrink-0">
+                <div class="p-4 border-b border-border bg-bg-surface flex justify-between items-center">
+                    <h2 class="font-bold text-lg text-text-primary">쪽지 ✉️</h2>
+                    <button @click="showNewChatModal = true" class="text-sm bg-accent text-white px-3 py-1 rounded hover:opacity-90">새 쪽지</button>
+                </div>
+                <div class="flex-1 overflow-y-auto divide-y divide-border">
+                    <template x-for="conv in conversations" :key="conv.id">
+                        <div @click="selectConversation(conv)" 
+                             class="p-4 hover:bg-bg-raised cursor-pointer transition flex items-center space-x-3"
+                             :class="activeTarget?.id === conv.id ? 'bg-bg-raised border-l-4 border-accent' : 'border-l-4 border-transparent'">
+                            
+                            <!-- Avatar -->
+                            <div class="shrink-0">
+                                <template x-if="conv.avatar_url">
+                                    <img :src="conv.avatar_url" class="w-10 h-10 rounded-full object-cover">
+                                </template>
+                                <template x-if="!conv.avatar_url">
+                                    <div class="w-10 h-10 rounded-full bg-border flex items-center justify-center text-lg font-bold text-text-secondary" x-text="conv.username.charAt(0)"></div>
+                                </template>
+                            </div>
+                            
+                            <!-- Info -->
+                            <div>
+                                <div class="font-medium text-text-primary flex items-center space-x-2">
+                                    <span x-text="conv.username"></span>
+                                    <span class="bg-accent bg-opacity-20 text-accent px-1.5 py-0.5 rounded text-[10px] font-bold" x-text="`Lv.${conv.level}`"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                    <template x-if="conversations.length === 0">
+                        <div class="p-6 text-center text-text-secondary text-sm">
+                            대화 내역이 없습니다.
+                        </div>
+                    </template>
+                </div>
+            </div>
+            
+            <!-- Right: Chat Window -->
+            <div class="flex-1 flex flex-col bg-bg-surface">
+                <template x-if="!activeTarget">
+                    <div class="flex-1 flex items-center justify-center text-text-secondary">
+                        대화할 상대를 선택하세요.
+                    </div>
+                </template>
+                
+                <template x-if="activeTarget">
+                    <div class="flex-1 flex flex-col h-full">
+                        <!-- Chat Header -->
+                        <div class="p-4 border-b border-border bg-bg-base flex items-center space-x-3">
+                            <span class="font-bold text-text-primary text-lg" x-text="activeTarget.username"></span>
+                        </div>
+                        
+                        <!-- Chat Messages -->
+                        <div class="flex-1 overflow-y-auto p-4 space-y-4" id="dm-messages">
+                            <template x-for="msg in messages" :key="msg.id">
+                                <div class="flex flex-col" :class="msg.sender_id === user.id ? 'items-end' : 'items-start'">
+                                    <div class="max-w-[70%] rounded-lg px-4 py-2 text-sm"
+                                         :class="msg.sender_id === user.id ? 'bg-accent text-white rounded-br-none' : 'bg-bg-raised text-text-primary rounded-bl-none'">
+                                        <div class="whitespace-pre-wrap break-words" x-text="msg.content"></div>
+                                    </div>
+                                    <div class="text-[10px] text-text-muted mt-1" x-text="formatTime(msg.created_at)"></div>
+                                </div>
+                            </template>
+                        </div>
+                        
+                        <!-- Chat Input -->
+                        <div class="p-4 border-t border-border bg-bg-base">
+                            <form @submit.prevent="sendMessage()" class="flex space-x-2">
+                                <input type="text" x-model="newMessage" placeholder="메시지를 입력하세요..." class="flex-1 px-4 py-2 border border-border rounded focus:outline-none focus:border-accent bg-white text-sm" :disabled="!ws || ws.readyState !== 1">
+                                <button type="submit" class="bg-accent text-white px-6 py-2 rounded font-medium hover:opacity-90 disabled:opacity-50" :disabled="!newMessage.trim() || !ws || ws.readyState !== 1">전송</button>
+                            </form>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </template>
+    
+    <!-- New Chat Modal -->
+    <template x-if="showNewChatModal">
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] px-4" @click.self="showNewChatModal = false">
+            <div class="bg-bg-surface w-full max-w-md rounded-lg shadow-xl overflow-hidden">
+                <div class="p-4 border-b border-border flex justify-between items-center">
+                    <h3 class="font-bold text-lg">새 쪽지 보내기</h3>
+                    <button @click="showNewChatModal = false" class="text-text-secondary hover:text-text-primary">&times;</button>
+                </div>
+                <div class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-text-secondary mb-1">상대방 닉네임</label>
+                        <input type="text" x-model="searchUsername" placeholder="닉네임 입력..." class="w-full px-3 py-2 border border-border rounded focus:outline-none focus:border-accent">
+                    </div>
+                    <!-- Mock simple list of all rankings just to pick users -->
+                    <div class="max-h-60 overflow-y-auto border border-border rounded divide-y divide-border">
+                        <template x-for="u in rankingUsers.filter(u => u.username.toLowerCase().includes(searchUsername.toLowerCase()) && u.id !== user.id)" :key="u.id">
+                            <div @click="startNewChat(u)" class="p-3 hover:bg-bg-raised cursor-pointer flex justify-between items-center">
+                                <span class="font-medium" x-text="u.username"></span>
+                                <span class="text-xs bg-accent bg-opacity-20 text-accent px-2 py-0.5 rounded" x-text="`Lv.${u.level}`"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+</div>
+
+<script>
+function dmApp() {
+    return {
+        user: null,
+        conversations: [],
+        activeTarget: null,
+        messages: [],
+        newMessage: '',
+        ws: null,
+        
+        showNewChatModal: false,
+        rankingUsers: [],
+        searchUsername: '',
+
+        async init() {
+            try {
+                const res = await fetch('/api/v1/users/me');
+                if (res.ok) {
+                    this.user = await res.json();
+                    if (this.hasPermission()) {
+                        this.loadConversations();
+                        this.loadRankingForNewChat();
+                    }
+                }
+            } catch(e) {}
+        },
+
+        hasPermission() {
+            return this.user && (this.user.role === 'admin' || this.user.role === 'editor' || this.user.level >= 4);
+        },
+
+        async loadConversations() {
+            const res = await fetch('/api/v1/dm/conversations');
+            if (res.ok) {
+                const data = await res.json();
+                this.conversations = data.conversations;
+            }
+        },
+
+        async loadRankingForNewChat() {
+            // Use existing ranking endpoint to get users we can chat with
+            const res = await fetch('/api/v1/users/ranking');
+            if (res.ok) {
+                const data = await res.json();
+                this.rankingUsers = data.ranking;
+            }
+        },
+
+        async selectConversation(targetUser) {
+            if (this.ws) {
+                this.ws.close();
+            }
+            this.activeTarget = targetUser;
+            this.messages = [];
+            
+            // Load history
+            const res = await fetch(`/api/v1/dm/${targetUser.id}/history`);
+            if (res.ok) {
+                const data = await res.json();
+                this.messages = data.history;
+                this.scrollToBottom();
+            }
+
+            // Connect WS
+            const tokenMatch = document.cookie.match(/(?:^|;\s*)access_token=([^;]*)/);
+            const token = tokenMatch ? tokenMatch[1] : '';
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            this.ws = new WebSocket(`${protocol}//${window.location.host}/api/v1/dm/${targetUser.id}/ws?token=${token}`);
+            
+            this.ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                this.messages.push(msg);
+                this.scrollToBottom();
+            };
+        },
+
+        startNewChat(user) {
+            this.showNewChatModal = false;
+            // check if conversation exists
+            const existing = this.conversations.find(c => c.id === user.id);
+            if (!existing) {
+                this.conversations.unshift(user);
+            }
+            this.selectConversation(user);
+        },
+
+        sendMessage() {
+            if (this.ws && this.ws.readyState === 1 && this.newMessage.trim()) {
+                this.ws.send(this.newMessage.trim());
+                this.newMessage = '';
+            }
+        },
+
+        scrollToBottom() {
+            setTimeout(() => {
+                const el = document.getElementById('dm-messages');
+                if (el) el.scrollTop = el.scrollHeight;
+            }, 50);
+        },
+
+        formatTime(dateStr) {
+            const d = new Date(dateStr);
+            const today = new Date();
+            if (d.toDateString() === today.toDateString()) {
+                return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            }
+            return d.toLocaleDateString([], {month: 'short', day: 'numeric'});
+        }
+    }
+}
+</script>
+{% endblock %}

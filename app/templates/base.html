@@ -6,6 +6,7 @@
     <title>{% block title %}인산가 커뮤니티{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/intersect@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js"></script>
     <script>
         tailwind.config = {
@@ -45,7 +46,63 @@
     </script>
 </head>
 <body class="antialiased min-h-screen flex flex-col relative"
-      x-data="{ toasts: [] }"
+      x-data="{ 
+          toasts: [],
+          user: null,
+          notifications: [],
+          showNotifs: false,
+          rooms: [],
+          showRooms: false,
+          async initUser() {
+              this.loadRooms();
+              try {
+                  const res = await fetch('/api/v1/users/me');
+                  if (res.ok) {
+                      this.user = await res.json();
+                      this.loadNotifications();
+                      this.initSSE();
+                  }
+              } catch(e) {}
+          },
+          async loadRooms() {
+              try {
+                  const res = await fetch('/api/v1/rooms');
+                  if(res.ok) {
+                      const data = await res.json();
+                      this.rooms = data.rooms;
+                  }
+              } catch(e) {}
+          },
+          initSSE() {
+              const eventSource = new EventSource('/api/v1/notifications/stream');
+              eventSource.onmessage = (event) => {
+                  const data = JSON.parse(event.data);
+                  showToast(data.message, 'info');
+                  this.loadNotifications();
+              };
+          },
+          async loadNotifications() {
+              if(!this.user) return;
+              try {
+                  const res = await fetch('/api/v1/notifications');
+                  if(res.ok) {
+                      const data = await res.json();
+                      this.notifications = data.notifications;
+                  }
+              } catch(e) {}
+          },
+          async readNotification(id, link) {
+              await fetch(`/api/v1/notifications/${id}/read`, { method: 'PATCH' });
+              if(link) window.location.href = link;
+              else this.loadNotifications();
+          },
+          async readAll() {
+              await fetch('/api/v1/notifications/read-all', { method: 'PATCH' });
+              this.notifications = [];
+              this.showNotifs = false;
+          }
+      }"
+      x-init="initUser()"
       @show-toast.window="
           const toast = { id: Date.now(), message: $event.detail.message, type: $event.detail.type };
           toasts.push(toast);
@@ -78,26 +135,74 @@
     </div>
     <!-- Topbar -->
     <header class="h-16 sticky top-0 z-50 bg-bg-surface border-b border-border flex items-center px-6 justify-between"
-            x-data="{
-                user: null,
-                async initUser() {
-                    try {
-                        const res = await fetch('/api/v1/users/me');
-                        if (res.ok) this.user = await res.json();
-                    } catch(e) {}
-                }
-            }"
-            x-init="initUser()">
-        <a href="/room/general" class="text-accent font-bold text-xl hover:opacity-80 transition shrink-0">🔷 인산가</a>
+            @click.away="showNotifs = false">
+        <div class="flex items-center space-x-6 shrink-0">
+            <a href="/room/general" class="text-accent font-bold text-xl hover:opacity-80 transition">🔷 인산가</a>
+            
+            <!-- Rooms Dropdown -->
+            <div class="relative flex items-center">
+                <button @click="showRooms = !showRooms" class="text-sm font-medium text-text-secondary hover:text-text-primary transition flex items-center space-x-1">
+                    <span>게시판</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
+                <div x-show="showRooms" @click.away="showRooms = false" style="display: none;" class="absolute top-10 left-0 w-48 bg-bg-surface border border-border rounded-lg shadow-xl overflow-hidden z-50">
+                    <ul class="divide-y divide-border max-h-64 overflow-y-auto">
+                        <template x-for="room in rooms" :key="room.id">
+                            <li>
+                                <a :href="`/room/${room.slug}`" class="block px-4 py-3 hover:bg-bg-raised transition">
+                                    <div class="text-sm font-bold text-text-primary" x-text="room.name"></div>
+                                    <div class="text-[10px] text-text-muted mt-0.5 line-clamp-1" x-show="room.description" x-text="room.description"></div>
+                                </a>
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+            </div>
+        </div>
         
         <!-- Header Right -->
         <div class="flex items-center space-x-3 sm:space-x-6 text-sm">
+            <!-- Search Bar -->
+            <form action="/search" method="GET" class="hidden md:flex items-center">
+                <input type="text" name="q" placeholder="게시글, 공시, 댓글 검색..." class="px-3 py-1.5 bg-bg-base border border-border rounded-full text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition w-48 lg:w-64">
+                <button type="submit" class="hidden">검색</button>
+            </form>
+            
             <template x-if="user">
                 <div class="flex items-center space-x-3 sm:space-x-4">
-                    <a href="/profile" class="text-text-secondary hover:text-text-primary transition flex items-center space-x-1 sm:space-x-2">
+                    
+                    <!-- Notifications -->
+                    <div class="relative flex items-center">
+                        <button @click="showNotifs = !showNotifs" class="text-text-secondary hover:text-text-primary transition relative p-1">
+                            🔔
+                            <span x-show="notifications.length > 0" x-text="notifications.length" class="absolute -top-1 -right-1 bg-danger text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-sm"></span>
+                        </button>
+                        
+                        <!-- Dropdown -->
+                        <div x-show="showNotifs" style="display: none;" class="absolute top-10 right-0 w-80 bg-bg-surface border border-border rounded-lg shadow-xl overflow-hidden z-50">
+                            <div class="p-3 border-b border-border flex justify-between items-center bg-bg-base">
+                                <span class="font-bold text-text-primary">알림</span>
+                                <button x-show="notifications.length > 0" @click="readAll()" class="text-xs text-text-secondary hover:text-text-primary transition">모두 읽음</button>
+                            </div>
+                            <ul class="max-h-80 overflow-y-auto divide-y divide-border">
+                                <template x-for="notif in notifications" :key="notif.id">
+                                    <li @click="readNotification(notif.id, notif.link)" class="p-3 hover:bg-bg-raised transition cursor-pointer flex flex-col gap-1">
+                                        <div class="text-sm text-text-primary leading-snug" x-text="notif.message"></div>
+                                        <div class="text-[10px] text-text-muted" x-text="new Date(notif.created_at).toLocaleString()"></div>
+                                    </li>
+                                </template>
+                                <template x-if="notifications.length === 0">
+                                    <li class="p-6 text-center text-text-secondary text-sm">새로운 알림이 없습니다.</li>
+                                </template>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <a href="/profile" class="text-text-secondary hover:text-text-primary transition flex items-center space-x-1 sm:space-x-2 ml-2">
                         <span class="bg-accent bg-opacity-20 text-accent px-2 py-0.5 rounded-full text-xs font-bold" x-text="`Lv.${user.level}`"></span>
                         <span x-text="`${user.username}님`" class="hidden sm:inline"></span>
                     </a>
+                    <a href="/dm" x-show="user.role === 'admin' || user.role === 'editor' || user.level >= 4" class="text-text-secondary hover:text-text-primary transition hidden sm:inline">✉️ 쪽지</a>
                     <a href="/ranking" class="text-text-secondary hover:text-text-primary transition hidden sm:inline">🏆 랭킹</a>
                     <a href="/admin" x-show="user.role === 'admin'" class="text-text-secondary hover:text-text-primary transition hidden sm:inline">🛠️ 관리자</a>
                     <button @click="await fetch('/api/v1/auth/logout', {method:'POST'}); window.location.href='/login'" class="text-text-secondary hover:text-text-primary transition">로그아웃</button>
@@ -115,5 +220,18 @@
     <main class="flex-1 flex justify-center max-w-7xl mx-auto w-full px-4 sm:px-6 md:px-8 pt-6 pb-12">
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Footer -->
+    <footer class="bg-bg-surface border-t border-border mt-auto">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-6 flex flex-col md:flex-row justify-between items-center text-sm text-text-secondary">
+            <div class="mb-4 md:mb-0 text-center md:text-left">
+                &copy; 2025 Insanka Community. All rights reserved.
+            </div>
+            <div class="flex space-x-6">
+                <a href="/rules" class="hover:text-accent transition">이용약관 및 회칙</a>
+                <a href="/privacy" class="hover:text-accent transition font-medium text-text-primary">개인정보처리방침</a>
+            </div>
+        </div>
+    </footer>
 </body>
 </html>

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}통합 검색 - 인산가{% endblock %}
+
+{% block content %}
+<div class="w-full flex flex-col md:flex-row gap-6" 
+     x-data="{ 
+         q: new URLSearchParams(window.location.search).get('q') || '', 
+         results: { posts: [], disclosures: [], comments: [] },
+         loading: false,
+         currentTab: 'posts',
+         async performSearch() {
+             if (!this.q || this.q.length < 2) return;
+             this.loading = true;
+             try {
+                 const res = await fetch(`/api/v1/search?q=${encodeURIComponent(this.q)}`);
+                 if(res.ok) {
+                     this.results = await res.json();
+                 }
+             } finally {
+                 this.loading = false;
+             }
+         }
+     }"
+     x-init="performSearch()">
+
+    <!-- Main Section -->
+    <div class="flex-1 max-w-4xl">
+        <h1 class="text-2xl font-bold text-text-primary mb-6">검색 결과: "<span x-text="q"></span>"</h1>
+
+        <!-- Search Input Again (for mobile or refining) -->
+        <div class="mb-6 flex">
+            <input type="text" x-model="q" @keydown.enter="performSearch()" placeholder="검색어 입력 (2자 이상)..." class="flex-1 px-4 py-3 bg-bg-surface border border-border rounded-l-lg focus:outline-none focus:border-accent">
+            <button @click="performSearch()" class="px-6 py-3 bg-accent text-white font-bold rounded-r-lg hover:bg-opacity-90">검색</button>
+        </div>
+
+        <template x-if="loading">
+            <div class="py-12 flex justify-center">
+                <div class="w-8 h-8 border-4 border-border border-t-accent rounded-full animate-spin"></div>
+            </div>
+        </template>
+
+        <template x-if="!loading && q.length >= 2">
+            <div>
+                <!-- Tabs -->
+                <div class="flex border-b border-border mb-6">
+                    <button @click="currentTab = 'posts'" :class="currentTab === 'posts' ? 'border-accent text-accent font-bold' : 'border-transparent text-text-secondary hover:text-text-primary'" class="px-4 py-2 border-b-2 transition-colors">
+                        게시글 (<span x-text="results.posts.length"></span>)
+                    </button>
+                    <button @click="currentTab = 'disclosures'" :class="currentTab === 'disclosures' ? 'border-accent text-accent font-bold' : 'border-transparent text-text-secondary hover:text-text-primary'" class="px-4 py-2 border-b-2 transition-colors">
+                        공시 (<span x-text="results.disclosures.length"></span>)
+                    </button>
+                    <button @click="currentTab = 'comments'" :class="currentTab === 'comments' ? 'border-accent text-accent font-bold' : 'border-transparent text-text-secondary hover:text-text-primary'" class="px-4 py-2 border-b-2 transition-colors">
+                        댓글 (<span x-text="results.comments.length"></span>)
+                    </button>
+                </div>
+
+                <!-- Tab Content: Posts -->
+                <div x-show="currentTab === 'posts'" class="space-y-4">
+                    <template x-if="results.posts.length === 0">
+                        <div class="p-8 text-center text-text-secondary bg-bg-surface rounded-lg border border-border">게시글 검색 결과가 없습니다.</div>
+                    </template>
+                    <template x-for="post in results.posts" :key="post.id">
+                        <a :href="`/post/${post.id}`" class="block p-4 bg-bg-surface border border-border rounded-lg hover:shadow-md transition">
+                            <h3 class="font-bold text-text-primary text-lg mb-2" x-text="post.title || '제목 없음'"></h3>
+                            <p class="text-sm text-text-secondary line-clamp-2 mb-3" x-text="post.content.replace(/<[^>]+>/g, '')"></p>
+                            <div class="flex items-center text-xs text-text-muted space-x-3">
+                                <span class="bg-accent bg-opacity-10 text-accent px-1.5 py-0.5 rounded font-bold" x-text="'Lv.' + post.author.level"></span>
+                                <span x-text="post.author.username"></span>
+                                <span x-text="new Date(post.created_at).toLocaleDateString()"></span>
+                            </div>
+                        </a>
+                    </template>
+                </div>
+
+                <!-- Tab Content: Disclosures -->
+                <div x-show="currentTab === 'disclosures'" class="space-y-4">
+                    <template x-if="results.disclosures.length === 0">
+                        <div class="p-8 text-center text-text-secondary bg-bg-surface rounded-lg border border-border">공시 검색 결과가 없습니다.</div>
+                    </template>
+                    <template x-for="post in results.disclosures" :key="post.id">
+                        <a :href="`/post/${post.id}`" class="block p-4 bg-bg-surface border border-border rounded-lg hover:shadow-md transition border-l-4 border-l-accent">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-2 py-0.5 bg-accent text-white text-xs font-bold rounded" x-text="post.disclosure_type"></span>
+                                <h3 class="font-bold text-text-primary text-lg" x-text="post.title"></h3>
+                            </div>
+                            <p class="text-sm text-text-secondary line-clamp-2 mb-3" x-text="post.content.replace(/<[^>]+>/g, '')"></p>
+                            <div class="flex items-center text-xs text-text-muted space-x-3">
+                                <span x-text="post.author.username"></span>
+                                <span x-text="new Date(post.created_at).toLocaleDateString()"></span>
+                            </div>
+                        </a>
+                    </template>
+                </div>
+
+                <!-- Tab Content: Comments -->
+                <div x-show="currentTab === 'comments'" class="space-y-4">
+                    <template x-if="results.comments.length === 0">
+                        <div class="p-8 text-center text-text-secondary bg-bg-surface rounded-lg border border-border">댓글 검색 결과가 없습니다.</div>
+                    </template>
+                    <template x-for="comment in results.comments" :key="comment.id">
+                        <a :href="`/post/${comment.post_id}`" class="block p-4 bg-bg-surface border border-border rounded-lg hover:shadow-md transition">
+                            <div class="text-xs text-text-muted mb-1 flex items-center space-x-1">
+                                <span>원문:</span>
+                                <span class="font-medium text-text-primary" x-text="comment.post_title"></span>
+                            </div>
+                            <p class="text-sm text-text-primary font-medium mb-3 border-l-2 border-border pl-3" x-text="comment.content"></p>
+                            <div class="flex items-center text-xs text-text-muted space-x-3">
+                                <span class="bg-accent bg-opacity-10 text-accent px-1.5 py-0.5 rounded font-bold" x-text="'Lv.' + comment.author.level"></span>
+                                <span x-text="comment.author.username"></span>
+                                <span x-text="new Date(comment.created_at).toLocaleDateString()"></span>
+                            </div>
+                        </a>
+                    </template>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+{% endblock %}

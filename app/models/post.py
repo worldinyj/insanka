@@ -11,6 +11,8 @@ class Post(Base):
     author_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     title = Column(String(100), nullable=False)
     content = Column(Text, nullable=False)
+    post_type = Column(String(20), default='feed', index=True) # 'feed' or 'disclosure'
+    disclosure_tag = Column(String(50), nullable=True) # e.g. '실적', '계약', etc.
     is_notice = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)

@@ -51,3 +51,18 @@ def require_level(min_level: int):
             raise HTTPException(status_code=403, detail=f"레벨 {min_level} 이상 필요")
         return user
     return checker
+
+async def get_current_user_ws(token: str) -> User | None:
+    if not token:
+        return None
+    if token.startswith("Bearer "):
+        token = token.split(" ")[1]
+    payload = decode_access_token(token)
+    if not payload or not payload.get("sub"):
+        return None
+    user_id = int(payload.get("sub"))
+    
+    from app.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        return user
