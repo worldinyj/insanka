@@ -24,6 +24,7 @@ async def get_me(user: User = Depends(get_current_user)):
 
 from pydantic import BaseModel
 from typing import Optional
+from app.utils.security import verify_password, get_password_hash
 
 class UserUpdate(BaseModel):
     bio: Optional[str] = None
@@ -42,6 +43,28 @@ async def update_me(update_data: UserUpdate, db: AsyncSession = Depends(get_db),
         
     await db.commit()
     return {"message": "Profile updated"}
+
+class PasswordUpdate(BaseModel):
+    current_password: str
+    new_password: str
+
+@router.patch("/me/password")
+async def update_password(
+    password_data: PasswordUpdate, 
+    db: AsyncSession = Depends(get_db), 
+    user: User = Depends(get_current_user)
+):
+    db_user = (await db.execute(select(User).where(User.id == user.id))).scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(404, "User not found")
+        
+    if not verify_password(password_data.current_password, db_user.hashed_pw):
+        raise HTTPException(400, "현재 비밀번호가 일치하지 않습니다.")
+        
+    db_user.hashed_pw = get_password_hash(password_data.new_password)
+    await db.commit()
+    
+    return {"message": "비밀번호가 성공적으로 변경되었습니다."}
 
 @router.get("/me/points")
 async def get_my_points(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):

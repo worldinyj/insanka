@@ -11,6 +11,8 @@
     editMode: false,
     editForm: { bio: '', avatar_url: '' },
     loadingProfile: false,
+    passwordForm: { current_password: '', new_password: '' },
+    loadingPassword: false,
     async loadProfile() {
         const res = await fetch('/api/v1/users/me/points');
         this.profile = await res.json();
@@ -52,6 +54,27 @@
             }
         } finally {
             this.loadingProfile = false;
+        }
+    },
+    async updatePassword() {
+        if (!this.passwordForm.current_password || !this.passwordForm.new_password) return;
+        this.loadingPassword = true;
+        try {
+            const res = await fetch('/api/v1/users/me/password', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.passwordForm)
+            });
+            if (res.ok) {
+                showToast('비밀번호가 성공적으로 변경되었습니다.', 'success');
+                this.passwordForm.current_password = '';
+                this.passwordForm.new_password = '';
+            } else {
+                const data = await res.json();
+                showToast(data.detail || '비밀번호 변경 실패', 'error');
+            }
+        } finally {
+            this.loadingPassword = false;
         }
     },
     getProgress(points, level) {
@@ -134,6 +157,23 @@
                         <div class="text-3xl font-bold text-accent mb-1">Lv <span x-text="profile.level"></span></div>
                         <div class="text-text-primary font-bold"><span x-text="profile.total_points.toLocaleString()"></span> pts</div>
                     </div>
+                </div>
+
+                <div class="mt-6 pt-6 border-t border-border">
+                    <h3 class="text-sm font-bold text-text-primary mb-4">비밀번호 변경</h3>
+                    <form @submit.prevent="updatePassword()" class="max-w-sm space-y-3">
+                        <div>
+                            <label class="block text-xs text-text-secondary mb-1">현재 비밀번호</label>
+                            <input type="password" x-model="passwordForm.current_password" required class="w-full px-3 py-1.5 bg-bg-base border border-border rounded text-sm focus:border-accent focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-text-secondary mb-1">새 비밀번호</label>
+                            <input type="password" x-model="passwordForm.new_password" required class="w-full px-3 py-1.5 bg-bg-base border border-border rounded text-sm focus:border-accent focus:outline-none">
+                        </div>
+                        <button type="submit" :disabled="loadingPassword" class="px-4 py-1.5 bg-accent text-bg-base text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition">
+                            <span x-text="loadingPassword ? '처리 중...' : '비밀번호 변경'"></span>
+                        </button>
+                    </form>
                 </div>
 
                 <div class="mt-6 pt-6 border-t border-border">

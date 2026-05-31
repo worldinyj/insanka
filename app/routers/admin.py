@@ -6,8 +6,10 @@ from app.models.user import User
 from app.models.membership_proof import MembershipProof
 from app.dependencies import require_admin
 from app.utils.email import send_approval_email, send_rejection_email
+from app.utils.security import get_password_hash
 from app.services.point_service import award_points, POINTS_SIGNUP
 from app.services.notification_service import create_notification
+from sqlalchemy.exc import IntegrityError
 from app.models.post import Post, Comment
 from app.models.warning import UserWarning
 from app.models.vote import Vote, VoteOption
@@ -135,6 +137,36 @@ async def reject_member(user_id: int, reason: str, db: AsyncSession = Depends(ge
     await send_rejection_email(user.email, reason)
     
     return {"message": "거절되었습니다."}
+
+class AdminUserCreate(BaseModel):
+    username: str
+    email: str
+    password: str
+    role: str = "member"
+
+@router.post("/members")
+async def create_member_manually(
+    user_data: AdminUserCreate, 
+    db: AsyncSession = Depends(get_db), 
+    admin: User = Depends(require_admin)
+):
+    try:
+        new_user = User(
+            username=user_data.username,
+            email=user_data.email,
+            hashed_pw=get_password_hash(user_data.password),
+            role=user_data.role,
+            status='approved',
+            level=1,
+            total_points=0,
+            approved_at=datetime.now(timezone.utc)
+        )
+        db.add(new_user)
+        await db.commit()
+        return {"message": "회원이 성공적으로 생성되었습니다.", "id": new_user.id}
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(400, "이미 존재하는 이메일 또는 닉네임입니다.")
 
 @router.get("/members")
 async def get_all_members(

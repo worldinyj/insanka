@@ -24,6 +24,8 @@
     newRoomSlug: '',
     newRoomDesc: '',
     pushMessage: '',
+    newUser: {username: '', email: '', password: '', role: 'member'},
+    newMemberLoading: false,
     async loadStats() {
         const res = await fetch('/api/v1/admin/dashboard/stats');
         if(res.ok) {
@@ -94,6 +96,30 @@
             showToast(data.detail || '생성 실패', 'error');
         }
         this.loading = false;
+    },
+    async createManualMember() {
+        if (!this.newUser.username || !this.newUser.email || !this.newUser.password) {
+            showToast('모든 필수 정보를 입력해주세요.', 'warning');
+            return;
+        }
+        this.newMemberLoading = true;
+        try {
+            const res = await fetch('/api/v1/admin/members', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(this.newUser)
+            });
+            if(res.ok) {
+                showToast('회원이 수동으로 생성되었습니다.', 'success');
+                this.newUser = {username: '', email: '', password: '', role: 'member'};
+                await this.loadMembers();
+            } else {
+                const data = await res.json();
+                showToast(data.detail || '회원 생성 실패', 'error');
+            }
+        } finally {
+            this.newMemberLoading = false;
+        }
     },
     async deleteRoom(roomId) {
         if(!confirm('정말 이 게시판을 삭제하시겠습니까? 관련된 데이터가 모두 손실될 수 있습니다.')) return;
@@ -357,6 +383,38 @@
                         <input type="text" x-model="searchQuery" @keyup.enter="loadMembers()" placeholder="이름/이메일 검색" class="px-3 py-1.5 border border-border rounded-l text-sm focus:outline-none focus:border-accent bg-bg-base">
                         <button @click="loadMembers()" class="px-3 py-1.5 bg-accent text-bg-base rounded-r text-sm hover:opacity-90 transition">검색</button>
                     </div>
+                </div>
+
+                <!-- 수동 회원 생성 폼 -->
+                <div class="bg-bg-surface border border-border p-5 rounded-xl mb-4">
+                    <h3 class="text-sm font-bold text-text-primary mb-3">수동 회원 생성</h3>
+                    <form @submit.prevent="createManualMember()" class="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                        <div class="sm:col-span-1">
+                            <label class="block text-xs text-text-secondary mb-1">닉네임</label>
+                            <input type="text" x-model="newUser.username" required class="w-full px-3 py-1.5 border border-border rounded focus:border-accent focus:outline-none bg-bg-base text-text-primary text-sm">
+                        </div>
+                        <div class="sm:col-span-1">
+                            <label class="block text-xs text-text-secondary mb-1">이메일</label>
+                            <input type="email" x-model="newUser.email" required class="w-full px-3 py-1.5 border border-border rounded focus:border-accent focus:outline-none bg-bg-base text-text-primary text-sm">
+                        </div>
+                        <div class="sm:col-span-1">
+                            <label class="block text-xs text-text-secondary mb-1">초기 비밀번호</label>
+                            <input type="text" x-model="newUser.password" required placeholder="임시 비번" class="w-full px-3 py-1.5 border border-border rounded focus:border-accent focus:outline-none bg-bg-base text-text-primary text-sm">
+                        </div>
+                        <div class="sm:col-span-1">
+                            <label class="block text-xs text-text-secondary mb-1">권한</label>
+                            <select x-model="newUser.role" class="w-full px-3 py-1.5 border border-border rounded focus:border-accent focus:outline-none bg-bg-base text-text-primary text-sm">
+                                <option value="member">일반 (member)</option>
+                                <option value="editor">에디터 (editor)</option>
+                                <option value="admin">관리자 (admin)</option>
+                            </select>
+                        </div>
+                        <div class="sm:col-span-1">
+                            <button type="submit" :disabled="newMemberLoading" class="w-full px-3 py-1.5 bg-accent text-bg-base text-sm font-bold rounded hover:opacity-90 transition disabled:opacity-50 h-[34px]">
+                                <span x-text="newMemberLoading ? '생성 중...' : '계정 생성'"></span>
+                            </button>
+                        </div>
+                    </form>
                 </div>
                 
                 <div class="bg-bg-surface border border-border rounded-xl shadow-lg overflow-x-auto">
