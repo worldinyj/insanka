@@ -7,7 +7,8 @@ from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.vote import Vote, VoteOption, VoteCast
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 
 router = APIRouter(tags=["votes"])
 
@@ -18,6 +19,7 @@ class VoteCreate(BaseModel):
     title: str
     options: List[OptionCreate]
     is_multiple: bool = False
+    ends_at: Optional[datetime] = None
 
 @router.get("/votes/active")
 async def get_active_vote(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
@@ -74,7 +76,8 @@ async def create_vote(
         room_id=room_id,
         creator_id=user.id,
         title=vote_in.title,
-        is_multiple=vote_in.is_multiple
+        is_multiple=vote_in.is_multiple,
+        ends_at=vote_in.ends_at
     )
     db.add(new_vote)
     await db.commit()

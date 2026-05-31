@@ -16,6 +16,10 @@
     // Events State
     newEvent: {title: '', description: '', start_time: '', end_time: '', location: ''},
     eventLoading: false,
+    // Vote State
+    activeVote: null,
+    selectedOptions: [],
+    voteLoading: false,
     
     // Chat State
     chatMessages: [],
@@ -24,13 +28,59 @@
     
     async init() {
         try {
-            const res = await fetch('/api/v1/users/me');
-            if (res.ok) {
-                const user = await res.json();
+            const [resUser, resVote] = await Promise.all([
+                fetch('/api/v1/users/me').catch(() => null),
+                fetch('/api/v1/votes/active').catch(() => null)
+            ]);
+            
+            if (resUser && resUser.ok) {
+                const user = await resUser.json();
                 this.currentUserRole = user.role;
+            }
+            
+            if (resVote && resVote.ok) {
+                const voteData = await resVote.json();
+                this.activeVote = voteData.vote;
             }
         } catch(e) {}
         this.loadPosts();
+    },
+    
+    async castVote() {
+        let payload = this.selectedOptions;
+        if(!Array.isArray(payload)) {
+            if(!payload) payload = [];
+            else payload = [parseInt(payload)];
+        } else {
+            payload = payload.map(id => parseInt(id));
+        }
+
+        if(payload.length === 0 || isNaN(payload[0])) {
+            showToast('항목을 선택해주세요.', 'warning');
+            return;
+        }
+        this.voteLoading = true;
+        try {
+            const res = await fetch(`/api/v1/votes/${this.activeVote.id}/cast`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            if(res.ok) {
+                showToast('투표가 완료되었습니다.', 'success');
+                // Reload vote data
+                const resVote = await fetch('/api/v1/votes/active');
+                if(resVote.ok) {
+                    const voteData = await resVote.json();
+                    this.activeVote = voteData.vote;
+                }
+            } else {
+                const err = await res.json();
+                showToast(err.detail || '투표 실패', 'error');
+            }
+        } finally {
+            this.voteLoading = false;
+        }
     },
     
     switchTab(type) {
@@ -217,10 +267,71 @@
         </button>
     </div>
 
-    <!-- Vote component area (Optional) -->
-    <div class="mb-6" x-show="postType === 'feed'">
-        {% include 'components/vote.html' ignore missing %}
-    </div>
+    <!-- Active Vote Widget -->
+    <template x-if="activeVote && postType === 'feed'">
+        <div class="mb-6 bg-bg-surface rounded-lg border border-border shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4 pb-3 border-b border-border">
+                <h2 class="text-lg font-bold text-text-primary flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    진행 중인 투표
+                </h2>
+            </div>
+            
+            <div class="space-y-4">
+                <h3 class="font-bold text-text-primary text-base" x-text="activeVote.title"></h3>
+                <p class="text-xs text-text-secondary" x-show="activeVote.is_multiple">복수 선택 가능</p>
+                
+                <div class="space-y-2">
+                    <template x-for="opt in activeVote.options" :key="opt.id">
+                        <div>
+                            <!-- Voting Mode -->
+                            <template x-if="!activeVote.has_voted">
+                                <label class="flex items-center p-3 border border-border rounded-lg cursor-pointer hover:bg-bg-raised transition"
+                                       :class="selectedOptions.includes(opt.id) ? 'border-accent bg-accent bg-opacity-5' : ''">
+                                    <input :type="activeVote.is_multiple ? 'checkbox' : 'radio'" 
+                                           :name="'vote_opt'" 
+                                           :value="opt.id" 
+                                           x-model="selectedOptions"
+                                           class="text-accent focus:ring-accent bg-bg-base border-border"
+                                           :class="activeVote.is_multiple ? 'rounded' : 'rounded-full'">
+                                    <span class="ml-3 text-sm font-medium text-text-primary" x-text="opt.text"></span>
+                                </label>
+                            </template>
+                            
+                            <!-- Results Mode -->
+                            <template x-if="activeVote.has_voted">
+                                <div class="relative w-full border border-border rounded-lg overflow-hidden bg-bg-base p-3">
+                                    <div class="absolute top-0 left-0 h-full bg-accent bg-opacity-20 transition-all duration-500" :style="`width: ${opt.percentage}%`"></div>
+                                    <div class="relative flex justify-between text-sm font-medium">
+                                        <span class="text-text-primary flex items-center">
+                                            <span x-text="opt.text"></span>
+                                            <svg x-show="opt.is_voted" class="w-4 h-4 ml-2 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                        </span>
+                                        <span class="text-text-secondary">
+                                            <span x-text="opt.percentage + '%'"></span>
+                                            <span class="text-xs ml-1" x-text="`(${opt.count}표)`"></span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+                
+                <div class="mt-4 flex items-center justify-between">
+                    <span class="text-xs text-text-secondary" x-text="`총 ${activeVote.total_votes}표 참여`"></span>
+                    <template x-if="!activeVote.has_voted">
+                        <button @click="castVote()" :disabled="voteLoading" class="px-4 py-2 bg-accent text-bg-base text-sm font-medium rounded-lg hover:opacity-90 transition disabled:opacity-50">
+                            <span x-text="voteLoading ? '투표 중...' : '투표하기'"></span>
+                        </button>
+                    </template>
+                    <template x-if="activeVote.has_voted">
+                        <span class="px-3 py-1 bg-success bg-opacity-20 text-success text-xs font-bold rounded-full">투표 완료</span>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </template>
 
     <!-- Posts List UI -->
     <div x-show="postType === 'feed' || postType === 'disclosure'" class="bg-bg-surface border border-border rounded-xl shadow-lg overflow-hidden">

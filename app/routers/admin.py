@@ -237,7 +237,8 @@ async def create_admin_vote(vote_in: VoteCreate, db: AsyncSession = Depends(get_
         room_id=1,
         creator_id=admin.id,
         title=vote_in.title,
-        is_multiple=vote_in.is_multiple
+        is_multiple=vote_in.is_multiple,
+        ends_at=vote_in.ends_at
     )
     db.add(new_vote)
     await db.commit()

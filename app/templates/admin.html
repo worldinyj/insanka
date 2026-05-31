@@ -17,6 +17,7 @@
     searchQuery: '',
     newVoteTitle: '',
     newVoteIsMultiple: false,
+    newVoteEndsAt: '',
     newVoteOptions: [{text: ''}, {text: ''}],
     rooms: [],
     newRoomName: '',
@@ -216,6 +217,7 @@
                 body: JSON.stringify({
                     title: this.newVoteTitle,
                     is_multiple: this.newVoteIsMultiple,
+                    ends_at: this.newVoteEndsAt ? new Date(this.newVoteEndsAt).toISOString() : null,
                     options: validOptions
                 })
             });
@@ -224,6 +226,7 @@
                 this.newVoteTitle = '';
                 this.newVoteOptions = [{text: ''}, {text: ''}];
                 this.newVoteIsMultiple = false;
+                this.newVoteEndsAt = '';
                 await this.loadVotes();
             } else {
                 showToast('투표 생성 실패', 'error');
@@ -440,9 +443,15 @@
                                 + 항목 추가
                             </button>
                         </div>
-                        <div class="flex items-center space-x-2 mt-4">
-                            <input type="checkbox" id="is_multiple" x-model="newVoteIsMultiple" class="w-4 h-4 text-accent border-border rounded focus:ring-accent bg-bg-base">
-                            <label for="is_multiple" class="text-sm text-text-primary">복수 선택 허용</label>
+                        <div class="flex items-center space-x-6 mt-4">
+                            <div class="flex items-center space-x-2">
+                                <input type="checkbox" id="is_multiple" x-model="newVoteIsMultiple" class="w-4 h-4 text-accent border-border rounded focus:ring-accent bg-bg-base">
+                                <label for="is_multiple" class="text-sm text-text-primary">복수 선택 허용</label>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <label for="ends_at" class="text-sm text-text-secondary">마감일시:</label>
+                                <input type="datetime-local" id="ends_at" x-model="newVoteEndsAt" class="px-2 py-1 bg-bg-base border border-border rounded focus:border-accent focus:outline-none text-text-primary text-sm">
+                            </div>
                         </div>
                         <button type="submit" :disabled="loading" class="w-full py-2.5 bg-accent text-bg-base font-medium rounded-lg hover:opacity-90 transition disabled:opacity-50">
                             <span x-text="loading ? '생성 중...' : '투표 등록'"></span>
