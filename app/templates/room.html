@@ -16,6 +16,7 @@
     // Events State
     newEvent: {title: '', description: '', start_time: '', end_time: '', location: ''},
     eventLoading: false,
+    eventFilter: 'month',
     // Vote State
     activeVote: null,
     selectedOptions: [],
@@ -137,7 +138,7 @@
     async loadEvents() {
         this.loading = true;
         try {
-            const res = await fetch(`/api/v1/rooms/${this.slug}/events`);
+            const res = await fetch(`/api/v1/rooms/${this.slug}/events?filter=${this.eventFilter}`);
             const data = await res.json();
             this.events = data.events;
         } finally {
@@ -390,6 +391,15 @@
 
     <!-- Events UI -->
     <div x-show="postType === 'events'" style="display: none;" class="space-y-6">
+        
+        <!-- Event Filters -->
+        <div class="flex space-x-2 pb-2">
+            <button @click="eventFilter = 'today'; loadEvents()" :class="eventFilter === 'today' ? 'bg-accent text-bg-base' : 'bg-bg-surface text-text-secondary border border-border hover:bg-bg-raised'" class="px-4 py-1.5 rounded-full text-sm font-bold transition">오늘</button>
+            <button @click="eventFilter = 'week'; loadEvents()" :class="eventFilter === 'week' ? 'bg-accent text-bg-base' : 'bg-bg-surface text-text-secondary border border-border hover:bg-bg-raised'" class="px-4 py-1.5 rounded-full text-sm font-bold transition">이번 주</button>
+            <button @click="eventFilter = 'month'; loadEvents()" :class="eventFilter === 'month' ? 'bg-accent text-bg-base' : 'bg-bg-surface text-text-secondary border border-border hover:bg-bg-raised'" class="px-4 py-1.5 rounded-full text-sm font-bold transition">이번 달</button>
+            <button @click="eventFilter = 'all'; loadEvents()" :class="eventFilter === 'all' ? 'bg-accent text-bg-base' : 'bg-bg-surface text-text-secondary border border-border hover:bg-bg-raised'" class="px-4 py-1.5 rounded-full text-sm font-bold transition">전체</button>
+        </div>
+
         <!-- Admin Event Form -->
         <template x-if="currentUserRole === 'admin' || currentUserRole === 'editor'">
             <div class="bg-bg-surface border border-border p-6 rounded-xl shadow-lg">

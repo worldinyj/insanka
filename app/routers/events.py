@@ -4,7 +4,8 @@ from sqlalchemy import select, desc
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta, date
+import calendar
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -22,12 +23,35 @@ class EventCreate(BaseModel):
     location: Optional[str] = None
 
 @router.get("/rooms/{slug}/events")
-async def get_room_events(slug: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_room_events(
+    slug: str,
+    filter: Optional[str] = "month",
+    db: AsyncSession = Depends(get_db), 
+    user: User = Depends(get_current_user)
+):
     room = (await db.execute(select(Room).where(Room.slug == slug))).scalar_one_or_none()
     if not room:
         raise HTTPException(404, "Room not found")
         
-    result = await db.execute(select(Event).where(Event.room_id == room.id).order_by(Event.start_time.asc()))
+    query = select(Event).where(Event.room_id == room.id)
+    
+    today = date.today()
+    if filter == "today":
+        start_date = datetime(today.year, today.month, today.day).astimezone()
+        end_date = start_date + timedelta(days=1)
+        query = query.where(Event.start_time >= start_date, Event.start_time < end_date)
+    elif filter == "week":
+        start_date = datetime(today.year, today.month, today.day) - timedelta(days=today.weekday())
+        start_date = start_date.astimezone()
+        end_date = start_date + timedelta(days=7)
+        query = query.where(Event.start_time >= start_date, Event.start_time < end_date)
+    elif filter == "month":
+        start_date = datetime(today.year, today.month, 1).astimezone()
+        _, last_day = calendar.monthrange(today.year, today.month)
+        end_date = start_date + timedelta(days=last_day)
+        query = query.where(Event.start_time >= start_date, Event.start_time < end_date)
+        
+    result = await db.execute(query.order_by(Event.start_time.asc()))
     events = result.scalars().all()
     
     events_data = []
