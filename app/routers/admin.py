@@ -230,18 +230,71 @@ async def warn_member(user_id: int, req: WarnRequest, db: AsyncSession = Depends
     
     return {"message": f"{user.username} 회원에게 경고를 발송했습니다."}
 
+from sqlalchemy import text
+
 @router.get("/dashboard/stats")
 async def get_dashboard_stats(db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)):
+    # 1. Basic counts
     total_users = (await db.execute(select(func.count(User.id)))).scalar()
     pending_users = (await db.execute(select(func.count(User.id)).where(User.status == 'pending'))).scalar()
     total_posts = (await db.execute(select(func.count(Post.id)))).scalar()
     total_comments = (await db.execute(select(func.count(Comment.id)))).scalar()
     
+    # 2. Activity Trends (Last 7 days)
+    # Note: SQLite specific date handling, for Postgres use DATE_TRUNC
+    now = datetime.now(timezone.utc)
+    from datetime import timedelta
+    seven_days_ago = now - timedelta(days=7)
+    
+    # User growth (Last 7 days)
+    user_trend_query = select(
+        func.date(User.created_at).label('date'),
+        func.count(User.id).label('count')
+    ).where(User.created_at >= seven_days_ago).group_by(func.date(User.created_at)).order_by('date')
+    
+    user_trend_result = await db.execute(user_trend_query)
+    user_trend = [{"date": row[0], "count": row[1]} for row in user_trend_result.all()]
+    
+    # Post trends
+    post_trend_query = select(
+        func.date(Post.created_at).label('date'),
+        func.count(Post.id).label('count')
+    ).where(Post.created_at >= seven_days_ago).group_by(func.date(Post.created_at)).order_by('date')
+    
+    post_trend_result = await db.execute(post_trend_query)
+    post_trend = [{"date": row[0], "count": row[1]} for row in post_trend_result.all()]
+    
     return {
-        "total_users": total_users,
-        "pending_users": pending_users,
-        "total_posts": total_posts,
-        "total_comments": total_comments
+        "summary": {
+            "total_users": total_users,
+            "pending_users": pending_users,
+            "total_posts": total_posts,
+            "total_comments": total_comments
+        },
+        "trends": {
+            "users": user_trend,
+            "posts": post_trend
+        },
+        "system": {
+            "version": "1.2.0",
+            "environment": "production" if settings.DATABASE_URL.startswith("postgresql") else "development",
+            "database": "PostgreSQL (Supabase)" if settings.DATABASE_URL.startswith("postgresql") else "SQLite",
+            "storage": "AWS S3" if settings.S3_BUCKET_NAME else "Local/Base64 Fallback",
+            "active_ws": len(active_connections)
+        }
+    }
+
+@router.get("/system/logs")
+async def get_system_logs(admin: User = Depends(require_admin)):
+    # In a real environment, we'd read from a log file or a logging service.
+    # For now, we return mock/recent logs for demonstration.
+    return {
+        "logs": [
+            {"time": datetime.now().strftime("%H:%M:%S"), "level": "INFO", "msg": "Application startup complete."},
+            {"time": (datetime.now() - timedelta(minutes=5)).strftime("%H:%M:%S"), "level": "INFO", "msg": "Database connection established."},
+            {"time": (datetime.now() - timedelta(minutes=15)).strftime("%H:%M:%S"), "level": "WARN", "msg": "Rate limit triggered for IP 127.0.0.1"},
+            {"time": (datetime.now() - timedelta(hours=1)).strftime("%H:%M:%S"), "level": "INFO", "msg": "Daily backup completed successfully."}
+        ]
     }
 
 @router.get("/votes")
