@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 from app.database import get_db
@@ -8,6 +8,8 @@ from app.models.user import User
 from app.dependencies import get_current_user
 from app.services.point_service import award_points, POINTS_POST, POINTS_COMMENT, POINTS_LIKE_RECEIVED
 from app.services.notification_service import create_notification
+from app.utils.sanitize import sanitize_html
+from app.utils.limiter import limiter
 from pydantic import BaseModel
 from typing import List, Optional
 
@@ -77,7 +79,9 @@ import re
 from app.services.notification_service import create_notification
 
 @router.post("/rooms/{slug}/posts")
+@limiter.limit("10/minute")
 async def create_post(
+    request: Request,
     slug: str,
     post_in: PostCreate,
     db: AsyncSession = Depends(get_db),
@@ -94,7 +98,7 @@ async def create_post(
         room_id=room.id,
         author_id=user.id,
         title=post_in.title,
-        content=post_in.content,
+        content=sanitize_html(post_in.content),
         post_type=post_in.post_type,
         disclosure_tag=post_in.disclosure_tag
     )
@@ -168,7 +172,7 @@ async def update_post(
         raise HTTPException(403, "작성자만 수정할 수 있습니다.")
         
     post.title = post_in.title
-    post.content = post_in.content
+    post.content = sanitize_html(post_in.content)
     await db.commit()
     return {"message": "수정되었습니다."}
 
@@ -191,7 +195,9 @@ async def delete_post(
     return {"message": "삭제되었습니다."}
 
 @router.post("/posts/{post_id}/comments")
+@limiter.limit("20/minute")
 async def create_comment(
+    request: Request,
     post_id: int,
     comment_in: CommentCreate,
     db: AsyncSession = Depends(get_db),
@@ -200,7 +206,7 @@ async def create_comment(
     new_comment = Comment(
         post_id=post_id,
         author_id=user.id,
-        content=comment_in.content,
+        content=sanitize_html(comment_in.content),
         parent_id=comment_in.parent_id
     )
     db.add(new_comment)

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}접속 제한 - 인산가 커뮤니티{% endblock %}
+
+{% block content %}
+<div class="max-w-md w-full flex flex-col items-center justify-center py-20 text-center">
+    <div class="text-6xl mb-6">⏳</div>
+    <h1 class="text-3xl font-bold text-text-primary mb-2">너무 많은 요청이 발생했습니다</h1>
+    <p class="text-text-secondary mb-8">안정적인 서비스 운영을 위해 일시적으로 요청을 제한하고 있습니다. 잠시 후 다시 시도해 주세요.</p>
+    <a href="/room/general" class="px-6 py-2 bg-accent text-white rounded-lg font-bold hover:opacity-90 transition">
+        메인으로 돌아가기
+    </a>
+</div>
+{% endblock %}

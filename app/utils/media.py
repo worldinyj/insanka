@@ -41,8 +41,30 @@ import asyncio
 from app.config import settings
 import uuid
 
+from PIL import Image
+import io
+
+def convert_to_webp(content: bytes) -> bytes:
+    """Converts image content to WebP format."""
+    img = Image.open(io.BytesIO(content))
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    
+    out = io.BytesIO()
+    img.save(out, format="WEBP", quality=80)
+    return out.getvalue()
+
 async def upload_proof_image(file: UploadFile) -> str:
     content, mime = await validate_upload(file, "proof_image")
+    
+    # Process and convert to WebP
+    try:
+        content = await asyncio.to_thread(convert_to_webp, content)
+        mime = "image/webp"
+        filename = f"{uuid.uuid4().hex}.webp"
+    except Exception:
+        # Fallback to original if processing fails
+        filename = f"{uuid.uuid4().hex}{Path(file.filename).suffix.lower()}"
     
     # If S3 is not configured, fallback to Base64
     if not all([settings.AWS_ACCESS_KEY, settings.AWS_SECRET_KEY, settings.S3_BUCKET_NAME, settings.S3_REGION]):
@@ -58,16 +80,14 @@ async def upload_proof_image(file: UploadFile) -> str:
         region_name=settings.S3_REGION
     )
     
-    ext = Path(file.filename).suffix.lower()
-    object_name = f"proofs/{uuid.uuid4().hex}{ext}"
+    object_name = f"proofs/{filename}"
     
     def upload_to_s3():
         s3_client.put_object(
             Bucket=settings.S3_BUCKET_NAME,
             Key=object_name,
             Body=content,
-            ContentType=mime,
-            ACL='public-read' # adjust as necessary, Render/AWS policies apply
+            ContentType=mime
         )
         
     await asyncio.to_thread(upload_to_s3)

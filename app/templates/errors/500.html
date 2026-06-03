@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}서버 오류 - 인산가 커뮤니티{% endblock %}
+
+{% block content %}
+<div class="max-w-md w-full flex flex-col items-center justify-center py-20 text-center">
+    <div class="text-6xl mb-6">🛠️</div>
+    <h1 class="text-3xl font-bold text-text-primary mb-2">서버에 문제가 발생했습니다</h1>
+    <p class="text-text-secondary mb-8">잠시 후 다시 시도해 주세요. 문제가 지속되면 관리자에게 문의 바랍니다.</p>
+    <a href="/room/general" class="px-6 py-2 bg-accent text-white rounded-lg font-bold hover:opacity-90 transition">
+        메인으로 돌아가기
+    </a>
+</div>
+{% endblock %}

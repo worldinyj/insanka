@@ -8,12 +8,15 @@ from app.models.invitation import Invitation
 from app.models.membership_proof import MembershipProof
 from app.utils.media import upload_proof_image
 from app.utils.security import verify_password, get_password_hash, create_access_token
+from app.utils.limiter import limiter
 from datetime import datetime, timezone
+from fastapi import Request
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login")
-async def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.email == form_data.username))).scalar_one_or_none()
     if not user or not verify_password(form_data.password, user.hashed_pw):
         raise HTTPException(
@@ -36,7 +39,9 @@ async def login(response: Response, form_data: OAuth2PasswordRequestForm = Depen
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/invitations/{token}/signup")
+@limiter.limit("3/hour")
 async def signup(
+    request: Request,
     token: str,
     username: str = Form(...),
     password: str = Form(...),
@@ -100,7 +105,9 @@ class PasswordResetConfirm(BaseModel):
     new_password: str
 
 @router.post("/password-reset/request")
+@limiter.limit("3/hour")
 async def request_password_reset(
+    request: Request,
     data: PasswordResetRequest,
     db: AsyncSession = Depends(get_db)
 ):

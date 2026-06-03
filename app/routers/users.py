@@ -6,6 +6,7 @@ from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.point_log import PointLog
 from app.models.post import Post, Comment
+from app.utils.sanitize import sanitize_html
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -37,7 +38,7 @@ async def update_me(update_data: UserUpdate, db: AsyncSession = Depends(get_db),
         raise HTTPException(404, "User not found")
         
     if update_data.bio is not None:
-        db_user.bio = update_data.bio
+        db_user.bio = sanitize_html(update_data.bio)
     if update_data.avatar_url is not None:
         db_user.avatar_url = update_data.avatar_url
         

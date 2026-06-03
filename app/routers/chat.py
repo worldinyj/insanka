@@ -6,6 +6,7 @@ from app.models.chat import ChatMessage
 from app.models.user import User
 from app.models.room import Room
 from app.utils.security import decode_access_token
+from app.utils.sanitize import sanitize_html
 import json
 from typing import Dict, List, Set
 from datetime import datetime
@@ -114,9 +115,10 @@ async def websocket_endpoint(websocket: WebSocket, room_slug: str):
         try:
             while True:
                 data = await websocket.receive_text()
+                sanitized_content = sanitize_html(data)
                 
                 # Save to DB
-                new_msg = ChatMessage(room_id=room.id, user_id=user.id, content=data)
+                new_msg = ChatMessage(room_id=room.id, user_id=user.id, content=sanitized_content)
                 db.add(new_msg)
                 await db.commit()
                 await db.refresh(new_msg)

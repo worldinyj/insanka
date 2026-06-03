@@ -3,9 +3,38 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
+from app.utils.limiter import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 app = FastAPI(title="Insanka API", version="1.0.0")
-templates = Jinja2Templates(directory="templates")
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+@app.exception_handler(RateLimitExceeded)
+async def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    if request.url.path.startswith("/api/"):
+        return _rate_limit_exceeded_handler(request, exc)
+    return templates.TemplateResponse(request=request, name="errors/429.html", status_code=429)
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc: Exception):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return templates.TemplateResponse(request=request, name="errors/404.html", status_code=404)
+
+@app.exception_handler(500)
+async def internal_error_handler(request: Request, exc: Exception):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+    return templates.TemplateResponse(request=request, name="errors/500.html", status_code=500)
+
+from fastapi.responses import JSONResponse
+
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # Page routes are now handled by app/routers/pages.py
 
