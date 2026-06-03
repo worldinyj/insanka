@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     AWS_SECRET_KEY: Optional[str] = None
     S3_BUCKET_NAME: Optional[str] = None
     S3_REGION: Optional[str] = None
+    S3_ENDPOINT_URL: Optional[str] = None
 
     @property
     def get_database_url(self) -> str:

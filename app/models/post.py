@@ -19,6 +19,8 @@ class Post(Base):
     like_count = Column(Integer, default=0)
     comment_count = Column(Integer, default=0)
 
+    author = relationship("User")
+
 class Comment(Base):
     __tablename__ = "comments"
 
@@ -29,6 +31,8 @@ class Comment(Base):
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_deleted = Column(Boolean, default=False)
+    
+    author = relationship("User")
 
 class PostLike(Base):
     __tablename__ = "post_likes"

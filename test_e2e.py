@@ -5,7 +5,9 @@ import os
 async def run():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        context = await browser.new_context()
+        page = await context.new_page()
+        page.on("console", lambda msg: print(f"Browser Console: {msg.text}"))
         
         print("1. Login as Admin")
         await page.goto("http://localhost:8000/login")
@@ -18,13 +20,13 @@ async def run():
 
         print("2. Test Phase 9: Admin Dashboard & Room Creation")
         await page.goto("http://localhost:8000/admin")
-        await page.wait_for_selector('text=관리자 대시보드')
+        await page.wait_for_selector('text=대시보드')
         
         # Room Creation Test
-        await page.click('button:has-text("게시판 관리")')
-        await page.wait_for_selector('input[placeholder="예: 가치투자방"]', state='visible')
-        await page.fill('input[placeholder="예: 가치투자방"]', "가치투자방")
-        await page.fill('input[placeholder="예: value-invest"]', "value-invest")
+        await page.click('button:has-text("투표/게시판")')
+        await page.wait_for_selector('input[placeholder="새 게시판 이름"]', state='visible')
+        await page.fill('input[placeholder="새 게시판 이름"]', "가치투자방")
+        await page.fill('input[placeholder="URL 슬러그"]', "value-invest")
         await page.click('button:has-text("게시판 생성")')
         await asyncio.sleep(1)
         

@@ -15,9 +15,10 @@ from app.models.warning import UserWarning
 from app.models.vote import Vote, VoteOption
 from app.routers.votes import VoteCreate
 from sqlalchemy import func
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
 from app.models.room import Room
+from app.config import settings
 from app.services.notification_service import active_connections
 
 router = APIRouter(prefix="/admin", tags=["admin"])

@@ -96,12 +96,15 @@ async def _save_to_storage(content: bytes, mime: str, filename: str, folder: str
         return f"data:{mime};base64,{b64}"
 
     # Use S3
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=settings.AWS_ACCESS_KEY,
-        aws_secret_access_key=settings.AWS_SECRET_KEY,
-        region_name=settings.S3_REGION
-    )
+    kwargs = {
+        'aws_access_key_id': settings.AWS_ACCESS_KEY,
+        'aws_secret_access_key': settings.AWS_SECRET_KEY,
+        'region_name': settings.S3_REGION
+    }
+    if settings.S3_ENDPOINT_URL:
+        kwargs['endpoint_url'] = settings.S3_ENDPOINT_URL
+        
+    s3_client = boto3.client('s3', **kwargs)
     
     object_name = f"{folder}/{filename}"
     

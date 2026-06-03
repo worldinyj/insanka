@@ -84,8 +84,227 @@
             this.logs = data.logs;
         }
     },
-    // ... (rest of existing methods: sendGlobalPush, loadRooms, createRoom, createManualMember, deleteRoom, loadPending, loadMembers, loadVotes, createInvite, processMember, banMember, warnMember, createVote, closeVote)
-" x-init="loadStats(); loadPending(); loadMembers(); loadVotes(); loadRooms(); loadLogs();">
+    async sendGlobalPush() {
+        if(!this.pushMessage) return;
+        this.loading = true;
+        const res = await fetch('/api/v1/admin/push', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: this.pushMessage})
+        });
+        if(res.ok) {
+            const data = await res.json();
+            showToast(data.message, 'success');
+            this.pushMessage = '';
+        }
+        this.loading = false;
+    },
+    async loadRooms() {
+        const res = await fetch('/api/v1/rooms');
+        if(res.ok) {
+            const data = await res.json();
+            this.rooms = data.rooms;
+        }
+    },
+    async createRoom() {
+        if(!this.newRoomName || !this.newRoomSlug) return;
+        this.loading = true;
+        const res = await fetch('/api/v1/admin/rooms', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                name: this.newRoomName,
+                slug: this.newRoomSlug,
+                description: this.newRoomDesc
+            })
+        });
+        if(res.ok) {
+            showToast('게시판이 생성되었습니다.', 'success');
+            this.newRoomName = '';
+            this.newRoomSlug = '';
+            this.newRoomDesc = '';
+            await this.loadRooms();
+        } else {
+            const data = await res.json();
+            showToast(data.detail || '생성 실패', 'error');
+        }
+        this.loading = false;
+    },
+    async createManualMember() {
+        if (!this.newUser.username || !this.newUser.email || !this.newUser.password) {
+            showToast('모든 필수 정보를 입력해주세요.', 'warning');
+            return;
+        }
+        this.newMemberLoading = true;
+        try {
+            const res = await fetch('/api/v1/admin/members', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(this.newUser)
+            });
+            if(res.ok) {
+                showToast('회원이 수동으로 생성되었습니다.', 'success');
+                this.newUser = {username: '', email: '', password: '', role: 'member'};
+                await this.loadMembers();
+            } else {
+                const data = await res.json();
+                showToast(data.detail || '회원 생성 실패', 'error');
+            }
+        } finally {
+            this.newMemberLoading = false;
+        }
+    },
+    async deleteRoom(roomId) {
+        if(!confirm('정말 이 게시판을 삭제하시겠습니까? 관련된 데이터가 모두 손실될 수 있습니다.')) return;
+        const res = await fetch(`/api/v1/admin/rooms/${roomId}`, { method: 'DELETE' });
+        if(res.ok) {
+            showToast('게시판이 삭제되었습니다.', 'success');
+            await this.loadRooms();
+        } else {
+            const data = await res.json();
+            showToast(data.detail || '삭제 실패', 'error');
+        }
+    },
+    async loadPending() {
+        const res = await fetch('/api/v1/admin/pending-members');
+        if(res.ok) {
+            const data = await res.json();
+            this.pendingMembers = data.proofs;
+        } else {
+            if(res.status === 401 || res.status === 403) {
+                showToast('관리자 권한이 없습니다.', 'error');
+                setTimeout(() => { window.location.href = '/room/general'; }, 1000);
+            }
+        }
+    },
+    async loadMembers() {
+        const res = await fetch(`/api/v1/admin/members?search=${encodeURIComponent(this.searchQuery)}`);
+        if(res.ok) {
+            const data = await res.json();
+            this.allMembers = data.members;
+        }
+    },
+    async loadVotes() {
+        const res = await fetch('/api/v1/admin/votes');
+        if(res.ok) {
+            const data = await res.json();
+            this.votes = data.votes;
+        }
+    },
+    async createInvite() {
+        if(!this.newInviteEmail) return;
+        this.loading = true;
+        this.inviteError = null;
+        this.inviteToken = null;
+        try {
+            const res = await fetch(`/api/v1/invitations/?email=${encodeURIComponent(this.newInviteEmail)}`, {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if(res.ok) {
+                this.inviteToken = data.token;
+                this.newInviteEmail = '';
+                showToast('초대 링크가 정상적으로 발급되었습니다.', 'success');
+            } else {
+                this.inviteError = data.detail || '초대 링크 발급 실패';
+                showToast(this.inviteError, 'error');
+            }
+        } finally {
+            this.loading = false;
+        }
+    },
+    async processMember(userId, action) {
+        if(!confirm(`정말 ${action === 'approve' ? '승인' : '거절'}하시겠습니까?`)) return;
+        
+        const url = `/api/v1/admin/members/${userId}/${action}`;
+        const options = { method: 'PATCH' };
+        
+        if(action === 'reject') {
+            options.headers = {'Content-Type': 'application/json'};
+            const reason = prompt('거절 사유를 입력하세요');
+            if(reason === null) return;
+            url += `?reason=${encodeURIComponent(reason)}`;
+        }
+        
+        const res = await fetch(url, options);
+        if(res.ok) {
+            showToast(`성공적으로 ${action === 'approve' ? '승인' : '거절'} 처리되었습니다.`, 'success');
+            await this.loadPending();
+        } else {
+            showToast('처리 중 오류가 발생했습니다.', 'error');
+        }
+    },
+    async banMember(userId) {
+        if(!confirm('정말 이 회원을 강제 탈퇴(정지) 처리하시겠습니까?')) return;
+        const res = await fetch(`/api/v1/admin/members/${userId}/ban`, { method: 'PATCH' });
+        if(res.ok) {
+            const data = await res.json();
+            showToast(data.message, 'success');
+            await this.loadMembers();
+        } else {
+            const data = await res.json();
+            showToast(data.detail || '처리 중 오류가 발생했습니다.', 'error');
+        }
+    },
+    async warnMember(userId) {
+        const reason = prompt('경고 사유를 입력하세요 (사용자에게 알림 전송됨)');
+        if(!reason) return;
+        const res = await fetch(`/api/v1/admin/members/${userId}/warn`, { 
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({reason})
+        });
+        if(res.ok) {
+            const data = await res.json();
+            showToast(data.message, 'success');
+        } else {
+            const data = await res.json();
+            showToast(data.detail || '처리 중 오류가 발생했습니다.', 'error');
+        }
+    },
+    async createVote() {
+        const validOptions = this.newVoteOptions.filter(o => o.text.trim() !== '');
+        if(this.newVoteTitle.trim() === '' || validOptions.length < 2) {
+            showToast('투표 제목과 최소 2개의 항목을 입력하세요.', 'error');
+            return;
+        }
+        this.loading = true;
+        try {
+            const res = await fetch('/api/v1/admin/votes', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    title: this.newVoteTitle,
+                    is_multiple: this.newVoteIsMultiple,
+                    ends_at: this.newVoteEndsAt ? new Date(this.newVoteEndsAt).toISOString() : null,
+                    options: validOptions
+                })
+            });
+            if(res.ok) {
+                showToast('투표가 생성되었습니다.', 'success');
+                this.newVoteTitle = '';
+                this.newVoteOptions = [{text: ''}, {text: ''}];
+                this.newVoteIsMultiple = false;
+                this.newVoteEndsAt = '';
+                await this.loadVotes();
+            } else {
+                showToast('투표 생성 실패', 'error');
+            }
+        } finally {
+            this.loading = false;
+        }
+    },
+    async closeVote(voteId) {
+        if(!confirm('이 투표를 종료하시겠습니까?')) return;
+        const res = await fetch(`/api/v1/admin/votes/${voteId}/close`, { method: 'PATCH' });
+        if(res.ok) {
+            showToast('투표가 종료되었습니다.', 'success');
+            await this.loadVotes();
+        } else {
+            showToast('투표 종료 실패', 'error');
+        }
+    }
+}" x-init="loadStats(); loadPending(); loadMembers(); loadVotes(); loadRooms(); loadLogs();">
 
     <div class="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
