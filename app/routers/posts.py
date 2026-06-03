@@ -29,6 +29,8 @@ class CommentCreate(BaseModel):
     content: str
     parent_id: Optional[int] = None
 
+from sqlalchemy.orm import selectinload, joinedload
+
 @router.get("/rooms/{slug}/posts")
 async def get_posts(
     slug: str,
@@ -42,7 +44,7 @@ async def get_posts(
     if not room:
         raise HTTPException(404, "Room not found")
         
-    query = select(Post, User).join(User, Post.author_id == User.id).where(Post.room_id == room.id)
+    query = select(Post).options(joinedload(Post.author)).where(Post.room_id == room.id)
     query = query.where(Post.post_type == post_type)
     
     if post_type == 'disclosure' and tag:
@@ -53,14 +55,10 @@ async def get_posts(
         
     query = query.order_by(desc(Post.id)).limit(limit)
     result = await db.execute(query)
-    rows = result.all()
+    posts = result.scalars().all()
     
-    # Get comment and like counts
     posts_data = []
-    for p, u in rows:
-        likes_count = (await db.execute(select(func.count()).where(PostLike.post_id == p.id))).scalar()
-        comments_count = (await db.execute(select(func.count()).where(Comment.post_id == p.id))).scalar()
-        
+    for p in posts:
         posts_data.append({
             "id": p.id, 
             "title": p.title, 
@@ -68,9 +66,9 @@ async def get_posts(
             "created_at": p.created_at,
             "post_type": p.post_type,
             "disclosure_tag": p.disclosure_tag,
-            "author": {"id": u.id, "username": u.username, "level": u.level},
-            "likes": likes_count,
-            "comments": comments_count
+            "author": {"id": p.author.id, "username": p.author.username, "level": p.author.level},
+            "likes": p.like_count,
+            "comments": p.comment_count
         })
     
     return {"posts": posts_data}
@@ -120,30 +118,26 @@ async def create_post(
 @router.get("/posts/{post_id}")
 async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Post, User).join(User, Post.author_id == User.id).where(Post.id == post_id)
+        select(Post).options(joinedload(Post.author)).where(Post.id == post_id)
     )
-    row = result.first()
-    if not row:
+    post = result.scalar_one_or_none()
+    if not post:
         raise HTTPException(404, "Post not found")
-        
-    post, author = row
         
     # Get comments
     comments_result = await db.execute(
-        select(Comment, User).join(User, Comment.author_id == User.id).where(Comment.post_id == post_id).order_by(Comment.created_at)
+        select(Comment).options(joinedload(Comment.author)).where(Comment.post_id == post_id).order_by(Comment.created_at)
     )
     comments = []
-    for c, u in comments_result.all():
+    for c in comments_result.scalars().all():
         comments.append({
             "id": c.id, 
             "content": c.content, 
             "parent_id": c.parent_id,
             "created_at": c.created_at,
-            "author": {"id": u.id, "username": u.username, "level": u.level}
+            "author": {"id": c.author.id, "username": c.author.username, "level": c.author.level}
         })
         
-    likes_count = (await db.execute(select(func.count()).where(PostLike.post_id == post_id))).scalar()
-    
     return {
         "id": post.id,
         "title": post.title,
@@ -152,9 +146,9 @@ async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
         "disclosure_tag": post.disclosure_tag,
         "created_at": post.created_at,
         "updated_at": post.updated_at,
-        "author": {"id": author.id, "username": author.username, "level": author.level},
-        "likes": likes_count,
-        "comments": comments
+        "author": {"id": post.author.id, "username": post.author.username, "level": post.author.level},
+        "likes": post.like_count,
+        "comments": len(comments)
     }
 
 @router.patch("/posts/{post_id}")
