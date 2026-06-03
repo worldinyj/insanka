@@ -36,9 +36,39 @@
             this.comments = data.comments;
             this.editTitle = data.title;
             this.editContent = data.content;
+            if (this.quill) {
+                this.quill.root.innerHTML = data.content;
+            }
         } else {
             showToast('게시글을 불러올 수 없습니다.', 'error');
             setTimeout(() => { window.location.href = '/room/general'; }, 1000);
+        }
+    },
+    quill: null,
+    toggleEdit() {
+        this.editMode = !this.editMode;
+        if (this.editMode) {
+            this.$nextTick(() => {
+                if (!this.quill) {
+                    this.quill = new Quill('#edit-editor-container', {
+                        theme: 'snow',
+                        modules: {
+                            toolbar: [
+                                [{ 'header': [1, 2, 3, false] }],
+                                ['bold', 'italic', 'underline', 'strike'],
+                                ['blockquote', 'code-block'],
+                                [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                                ['link', 'image'],
+                                ['clean']
+                            ]
+                        }
+                    });
+                    this.quill.on('text-change', () => {
+                        this.editContent = this.quill.root.innerHTML;
+                    });
+                }
+                this.quill.root.innerHTML = this.post.content;
+            });
         }
     },
     async toggleLike() {
@@ -139,7 +169,7 @@
                         </div>
                         <template x-if="currentUser && (currentUser.id === post.author.id || currentUser.role === 'admin' || currentUser.role === 'staff')">
                             <div class="flex space-x-2">
-                                <button @click="editMode = true" class="text-xs text-text-secondary hover:text-text-primary transition px-2 py-1 border border-border rounded">수정</button>
+                                <button @click="toggleEdit()" class="text-xs text-text-secondary hover:text-text-primary transition px-2 py-1 border border-border rounded">수정</button>
                                 <button @click="deletePost()" class="text-xs text-danger hover:opacity-80 transition px-2 py-1 border border-danger rounded">삭제</button>
                             </div>
                         </template>
@@ -153,12 +183,12 @@
             </div>
 
             <!-- Content -->
-            <div x-show="!editMode" class="prose max-w-none text-text-primary mb-8 min-h-[200px]" style="white-space: pre-wrap;" x-text="post.content">
+            <div x-show="!editMode" class="prose max-w-none text-text-primary mb-8 min-h-[200px]" x-html="post.content">
             </div>
             
             <!-- Edit Mode Content -->
             <div x-show="editMode" class="mb-8" style="display: none;">
-                <textarea x-model="editContent" rows="10" class="w-full px-4 py-3 border border-border rounded-md focus:border-accent focus:outline-none resize-y bg-bg-base mb-4"></textarea>
+                <div id="edit-editor-container" class="bg-bg-base border border-border rounded-md min-h-[400px] mb-4"></div>
                 <div class="flex justify-end space-x-2">
                     <button @click="editMode = false; editTitle = post.title; editContent = post.content;" class="px-4 py-2 border border-border text-text-secondary rounded hover:bg-bg-raised transition text-sm">취소</button>
                     <button @click="updatePost()" class="px-4 py-2 bg-accent text-bg-base rounded font-medium hover:opacity-90 transition text-sm">저장</button>

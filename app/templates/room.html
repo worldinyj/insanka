@@ -361,7 +361,7 @@
                             </template>
                             <h2 class="text-lg sm:text-xl font-bold text-text-primary leading-snug" x-text="post.title"></h2>
                         </div>
-                        <p class="text-sm sm:text-base text-text-secondary line-clamp-2 mb-4" x-text="post.content_preview"></p>
+                        <div class="text-sm sm:text-base text-text-secondary line-clamp-2 mb-4 prose-sm max-w-none" x-html="post.content_preview"></div>
                         
                         <div class="flex items-center space-x-6 text-sm text-text-muted">
                             <div class="flex items-center space-x-1 hover:text-text-primary transition">
