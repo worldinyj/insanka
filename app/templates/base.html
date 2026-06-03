@@ -79,13 +79,29 @@
               } catch(e) {}
           },
           initSSE() {
-              const eventSource = new EventSource('/api/v1/notifications/stream');
-              eventSource.onmessage = (event) => {
+              if (this.eventSource) this.eventSource.close();
+              
+              this.eventSource = new EventSource('/api/v1/notifications/stream');
+              this.eventSource.onmessage = (event) => {
                   const data = JSON.parse(event.data);
+                  // Only show toast if it's a new unique message in the last 5 seconds
+                  const now = Date.now();
+                  if (this.lastNotif === data.message && (now - this.lastNotifTime < 5000)) return;
+                  
                   showToast(data.message, 'info');
+                  this.lastNotif = data.message;
+                  this.lastNotifTime = now;
                   this.loadNotifications();
               };
+              
+              this.eventSource.onerror = () => {
+                  this.eventSource.close();
+                  setTimeout(() => this.initSSE(), 5000); // Reconnect after 5s
+              };
           },
+          lastNotif: null,
+          lastNotifTime: 0,
+          eventSource: null,
           async loadNotifications() {
               if(!this.user) return;
               try {
