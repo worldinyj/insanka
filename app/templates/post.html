@@ -66,6 +66,36 @@
                     this.quill.on('text-change', () => {
                         this.editContent = this.quill.root.innerHTML;
                     });
+                    
+                    // Custom Image Handler for Edit Mode
+                    this.quill.getModule('toolbar').addHandler('image', () => {
+                        const input = document.createElement('input');
+                        input.setAttribute('type', 'file');
+                        input.setAttribute('accept', 'image/*');
+                        input.click();
+
+                        input.onchange = async () => {
+                            const file = input.files[0];
+                            if (!file) return;
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            try {
+                                const res = await fetch('/api/v1/posts/upload-image', {
+                                    method: 'POST',
+                                    body: formData
+                                });
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    const range = this.quill.getSelection();
+                                    this.quill.insertEmbed(range.index, 'image', data.url);
+                                } else {
+                                    showToast('이미지 업로드 실패', 'error');
+                                }
+                            } catch (e) {
+                                showToast('이미지 업로드 오류', 'error');
+                            }
+                        };
+                    });
                 }
                 this.quill.root.innerHTML = this.post.content;
             });

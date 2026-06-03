@@ -13,7 +13,20 @@ from app.utils.limiter import limiter
 from pydantic import BaseModel
 from typing import List, Optional
 
+from fastapi import UploadFile, File
+from app.utils.media import upload_image
+
 router = APIRouter(tags=["posts"])
+
+@router.post("/posts/upload-image")
+@limiter.limit("5/minute")
+async def upload_post_image(
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user)
+):
+    url = await upload_image(file, "post_image")
+    return {"url": url}
 
 class PostCreate(BaseModel):
     title: str

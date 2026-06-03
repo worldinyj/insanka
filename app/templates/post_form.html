@@ -97,6 +97,39 @@
             }
         });
 
+        // Custom Image Handler for Quill
+        editor.getModule('toolbar').addHandler('image', () => {
+            const input = document.createElement('input');
+            input.setAttribute('type', 'file');
+            input.setAttribute('accept', 'image/*');
+            input.click();
+
+            input.onchange = async () => {
+                const file = input.files[0];
+                if (!file) return;
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const res = await fetch('/api/v1/posts/upload-image', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        const range = editor.getSelection();
+                        editor.insertEmbed(range.index, 'image', data.url);
+                    } else {
+                        const err = await res.json();
+                        showToast(err.detail || '이미지 업로드 실패', 'error');
+                    }
+                } catch (e) {
+                    showToast('이미지 업로드 중 오류가 발생했습니다.', 'error');
+                }
+            };
+        });
+
         // Sync Quill content to Alpine.js
         const alpineEl = document.querySelector('[x-data]');
         editor.on('text-change', function() {
